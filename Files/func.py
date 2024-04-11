@@ -148,20 +148,24 @@ def add_y_col(df, df_read, date_col, target_days, return_col, volatility_col):
     volatility_col = volatility_col + '_' + str(target_days)
     
     #create sharpe mean column
-    df['sharpe_ratio_mean'] = df.groupby(date_col)['sharpe_ratio'].mean()
-     
+    #Nedan gjorde så när vi dropna blev df tom
+    #df['sharpe_ratio_mean'] = df.groupby(date_col)['sharpe_ratio'].mean()
+    
+    sharpe_ratio_mean = df.groupby(date_col)['sharpe_ratio'].mean().rename('sharpe_ratio_mean')
+    df = df.merge(sharpe_ratio_mean, on=date_col)
 
     #shift the sharpe ratio by target_days
     df['sharpe_ratio'] = df['sharpe_ratio'].shift(-target_days)
     df['sharpe_ratio_mean'] = df['sharpe_ratio_mean'].shift(-target_days)
     
     #drop na values
-    df = df.dropna(subset=['sharpe_ratio', 'sharpe_ratio_mean'])
+    #df = df.dropna(subset=['sharpe_ratio', 'sharpe_ratio_mean'])
+    df = df.dropna()
 
     df['Y'] = np.where(df['sharpe_ratio'] > df['sharpe_ratio_mean'], 1, 0)
     
 
-    df = df.drop(columns=['sharpe_ratio', 'sharpe_ratio_mean', f'{return_col}_shifted', f'{volatility_col}_shifted', return_col, volatility_col])
+    df = df.drop(columns=['sharpe_ratio', 'sharpe_ratio_mean', return_col, volatility_col])
 
     
     return df
@@ -169,7 +173,6 @@ def add_y_col(df, df_read, date_col, target_days, return_col, volatility_col):
 
 def prepare_training_dataset(df, date_col, shuffle=False, train_split=0.25, eval_split=0.25):
 
-    
     # Separate features and target variable
     X = df.drop(columns=['Y', 'asset'])
 
