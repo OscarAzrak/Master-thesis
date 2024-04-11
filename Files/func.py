@@ -146,16 +146,22 @@ def add_y_col(df, df_read, date_col, target_days, return_col, volatility_col):
     
     return_col = return_col + '_' + str(target_days)
     volatility_col = volatility_col + '_' + str(target_days)
-
-
-    """# Calculate the mean Sharpe ratio for each date and merge it back into the DataFrame
-    sharpe_ratio_mean = df.groupby(date_col)['sharpe_ratio'].mean().rename('sharpe_ratio_mean')
-    df = df.merge(sharpe_ratio_mean, on=date_col)
     
-    # Create a new binary column 'Y', indicating whether the Sharpe ratio is above the mean for its date
-    df['Y'] = np.where(df['sharpe_ratio'] > df['sharpe_ratio_mean'], 1, 0)
+    #create sharpe mean column
+    df['sharpe_ratio_mean'] = df.groupby(date_col)['sharpe_ratio'].mean()
+     
 
-    df = df.drop(columns=['sharpe_ratio', 'sharpe_ratio_mean', f'{return_col}_shifted', f'{volatility_col}_shifted', return_col, volatility_col])"""
+    #shift the sharpe ratio by target_days
+    df['sharpe_ratio'] = df['sharpe_ratio'].shift(-target_days)
+    df['sharpe_ratio_mean'] = df['sharpe_ratio_mean'].shift(-target_days)
+    
+    #drop na values
+    df = df.dropna(subset=['sharpe_ratio', 'sharpe_ratio_mean'])
+
+    df['Y'] = np.where(df['sharpe_ratio'] > df['sharpe_ratio_mean'], 1, 0)
+    
+
+    df = df.drop(columns=['sharpe_ratio', 'sharpe_ratio_mean', f'{return_col}_shifted', f'{volatility_col}_shifted', return_col, volatility_col])
 
     
     return df
@@ -222,6 +228,9 @@ def optimize_and_train_ridge(X_train, y_train, X_train_eval, y_train_eval, param
     # Retrain the model with the best parameters on the combined training and evaluation sets
     model_best = model.__class__(**grid_search.best_params_)
     model_best.fit(X_train_eval, y_train_eval)
+    
+    # ändra från klassificierig till sannolikhet
+
 
     return model_best, grid_search
 
