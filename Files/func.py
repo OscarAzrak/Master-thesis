@@ -237,6 +237,8 @@ def optimize_and_train_ridge(X_train, y_train, X_train_eval, y_train_eval, param
 
     return model_best, grid_search
 
+def sigmoid(x):
+    return 1 / (1 + np.exp(-x))
 
 
 
