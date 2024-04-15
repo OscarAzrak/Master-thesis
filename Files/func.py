@@ -348,3 +348,37 @@ def train_and_evaluate_NN(X_train_eval, y_train_eval, X_eval, y_eval, X_test, y_
     return model, history, X_test_scaled
 
 
+def predict_and_analyze(model, X_test, df, name, percentile=90):
+    # Prepare the prediction data: ensure it only contains the features used during training
+
+    X_predict = X_test.copy()
+   
+
+    # Prediction handling based on model type
+    if name == 'ridge':
+        y_scores = model.decision_function(X_predict)
+        y_pred_prob = sigmoid(y_scores)  # Convert scores to probabilities using sigmoid
+    elif name == 'NN':
+        y_pred_prob = model.predict(X_predict).flatten()  # Flatten the array to ensure it's 1D
+    else:
+        y_pred_prob = model.predict_proba(X_predict)[:, 1]
+
+    
+    # Store predictions in X_test for further analysis
+    X_predict[name] = y_pred_prob
+    #print(f"{name} Classifier Prediction Scores:", y_pred_prob)
+
+    a = X_predict[name].index
+    b = df.index.intersection(a)
+    c = df.loc[b, ['asset', 'todate']]
+    d = X_predict[[name]].join(c)
+
+    # Calculate and process percentiles
+    e_top_10 = d.groupby('todate')[name].apply(lambda x: np.percentile(x, percentile))
+    e_top_10_df = e_top_10.reset_index()
+    e_top_10_df.columns = ['todate', 'threshold']
+    d_merged = d.merge(e_top_10_df, on='todate')
+    top_assets = d_merged[d_merged[name] > d_merged['threshold']]
+
+    return top_assets
+
