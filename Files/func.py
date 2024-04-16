@@ -348,11 +348,12 @@ def train_and_evaluate_NN(X_train_eval, y_train_eval, X_eval, y_eval, X_test, y_
     return model, history, X_test_scaled
 
 
-def predict_and_analyze(model, X_test, df, name, percentile=90):
-    # Prepare the prediction data: ensure it only contains the features used during training
+import numpy as np
+import pandas as pd
 
+def predict_and_analyze_ext(model, X_test, df, name, top_percentile=90, bottom_percentile=10):
+    # Prepare the prediction data: ensure it only contains the features used during training
     X_predict = X_test.copy()
-   
 
     # Prediction handling based on model type
     if name == 'ridge':
@@ -363,22 +364,29 @@ def predict_and_analyze(model, X_test, df, name, percentile=90):
     else:
         y_pred_prob = model.predict_proba(X_predict)[:, 1]
 
-    
-    # Store predictions in X_test for further analysis
+    # Store predictions in X_predict for further analysis
     X_predict[name] = y_pred_prob
-    #print(f"{name} Classifier Prediction Scores:", y_pred_prob)
 
-    a = X_predict[name].index
+    # Merge predictions with the additional data
+    a = X_predict.index
     b = df.index.intersection(a)
     c = df.loc[b, ['asset', 'todate']]
     d = X_predict[[name]].join(c)
 
-    # Calculate and process percentiles
-    e_top_10 = d.groupby('todate')[name].apply(lambda x: np.percentile(x, percentile))
+    # Calculate top and bottom percentiles
+    e_top_10 = d.groupby('todate')[name].apply(lambda x: np.percentile(x, top_percentile))
+    e_bottom_10 = d.groupby('todate')[name].apply(lambda x: np.percentile(x, bottom_percentile))
+
+    # Convert to DataFrame and merge
     e_top_10_df = e_top_10.reset_index()
-    e_top_10_df.columns = ['todate', 'threshold']
-    d_merged = d.merge(e_top_10_df, on='todate')
-    top_assets = d_merged[d_merged[name] > d_merged['threshold']]
+    e_top_10_df.columns = ['todate', 'top_threshold']
+    e_bottom_10_df = e_bottom_10.reset_index()
+    e_bottom_10_df.columns = ['todate', 'bottom_threshold']
 
-    return top_assets
+    d_merged = d.merge(e_top_10_df, on='todate').merge(e_bottom_10_df, on='todate')
+    
+    # Select top and bottom assets
+    top_assets = d_merged[d_merged[name] >= d_merged['top_threshold']]
+    bottom_assets = d_merged[d_merged[name] <= d_merged['bottom_threshold']]
 
+    return top_assets, bottom_assets
