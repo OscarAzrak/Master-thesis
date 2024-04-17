@@ -352,7 +352,6 @@ import numpy as np
 import pandas as pd
 
 def predict_and_analyze_ext(model, X_test, df, name, top_percentile=90, bottom_percentile=10):
-    # Prepare the prediction data: ensure it only contains the features used during training
     X_predict = X_test.copy()
 
     # Prediction handling based on model type
@@ -365,7 +364,9 @@ def predict_and_analyze_ext(model, X_test, df, name, top_percentile=90, bottom_p
         y_pred_prob = model.predict_proba(X_predict)[:, 1]
 
     # Store predictions in X_predict for further analysis
-    X_predict[name] = y_pred_prob
+    y_pred_prob = pd.Series(y_pred_prob, index=X_test.index).shift(2)  # Ensure the series aligns with the original index
+
+    X_predict[name] = y_pred_prob  # Shift the predictions by 2 days to avoid lookahead bias
 
     # Merge predictions with the additional data
     a = X_predict.index
@@ -390,3 +391,36 @@ def predict_and_analyze_ext(model, X_test, df, name, top_percentile=90, bottom_p
     bottom_assets = d_merged[d_merged[name] <= d_merged['bottom_threshold']]
 
     return top_assets, bottom_assets
+
+# Function to apply the model and get predictions every 10 days
+def apply_model_every_10_days(models, X, df, start_date, end_date):
+    current_date = start_date
+    results_best = {}
+    results_worst = {}
+    
+    while current_date <= end_date:
+        # Slice the next 10 days or until the end_date
+        period_end = min(current_date + pd.DateOffset(days=9), end_date)
+        
+        # Filter X for the current period based on model needs
+        X_period = X.loc[current_date:period_end]
+
+        for name, model in models.items():
+            if current_date == start_date:  # Initialize on first run
+                results_best[name] = []
+                results_worst[name] = []
+
+            # Use only data available up to the current date to avoid lookahead bias
+            df_period = df.loc[df['todate'] <= period_end]
+            best_assets, worst_assets = predict_and_analyze_ext(model, X_period, df_period, name)
+
+            # Store results for the current period
+            results_best[name].append(best_assets)
+            results_worst[name].append(worst_assets)
+        
+        # Move to the next period, 10 days later
+        current_date += pd.DateOffset(days=10)
+    
+    return results_best, results_worst
+
+  
