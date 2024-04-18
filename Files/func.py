@@ -65,6 +65,7 @@ def add_features(df, windows):
         features_df = pd.concat([features_df, macro_df], axis=1)
 
     return features_df
+
 def add_target(df, windows):
 
     feature_cols = [col for col in df.columns if 'macro' not in col.lower()]
@@ -146,10 +147,7 @@ def add_y_col(df, df_read, date_col, target_days, return_col, volatility_col):
     
     return_col = return_col + '_' + str(target_days)
     volatility_col = volatility_col + '_' + str(target_days)
-    
-    #create sharpe mean column
-    #Nedan gjorde så när vi dropna blev df tom
-    #df['sharpe_ratio_mean'] = df.groupby(date_col)['sharpe_ratio'].mean()
+
     
     sharpe_ratio_mean = df.groupby(date_col)['sharpe_ratio'].mean().rename('sharpe_ratio_mean')
     df = df.merge(sharpe_ratio_mean, on=date_col)
@@ -157,9 +155,7 @@ def add_y_col(df, df_read, date_col, target_days, return_col, volatility_col):
     #shift the sharpe ratio by target_days
     df['sharpe_ratio'] = df['sharpe_ratio'].shift(-target_days)
     df['sharpe_ratio_mean'] = df['sharpe_ratio_mean'].shift(-target_days)
-    
-    #drop na values
-    #df = df.dropna(subset=['sharpe_ratio', 'sharpe_ratio_mean'])
+
     df = df.dropna()
 
     df['Y'] = np.where(df['sharpe_ratio'] > df['sharpe_ratio_mean'], 1, 0)
@@ -212,8 +208,6 @@ def prepare_training_dataset(df, date_col, shuffle=False, train_split=0.25, eval
 
 
 
-
-
 def optimize_and_train_ridge(X_train, y_train, X_train_eval, y_train_eval, param_grid, scoring='accuracy', cv=5):
 
     model = RidgeClassifier()
@@ -246,7 +240,6 @@ def sigmoid(x):
 
 def evaluate_model_performance(y_true, y_pred):
  
-
     conf_matrix = confusion_matrix(y_true, y_pred)
 
 
@@ -268,7 +261,6 @@ def evaluate_model_performance(y_true, y_pred):
     print(f"RMSE: {rmse}")
 
     return conf_matrix, precision, recall, f1, mse, rmse
-
 
 
 
@@ -357,16 +349,16 @@ def predict_and_analyze_ext(model, X_test, df, name, top_percentile=90, bottom_p
     # Prediction handling based on model type
     if name == 'ridge':
         y_scores = model.decision_function(X_predict)
-        y_pred_prob = sigmoid(y_scores)  # Convert scores to probabilities using sigmoid
+        y_pred_prob = sigmoid(y_scores)  
     elif name == 'NN':
-        y_pred_prob = model.predict(X_predict).flatten()  # Flatten the array to ensure it's 1D
+        y_pred_prob = model.predict(X_predict).flatten()  
     else:
         y_pred_prob = model.predict_proba(X_predict)[:, 1]
 
     # Store predictions in X_predict for further analysis
-    y_pred_prob = pd.Series(y_pred_prob, index=X_test.index).shift(2)  # Ensure the series aligns with the original index
+    y_pred_prob = pd.Series(y_pred_prob, index=X_test.index)
 
-    X_predict[name] = y_pred_prob  # Shift the predictions by 2 days to avoid lookahead bias
+    X_predict[name] = y_pred_prob  
 
     # Merge predictions with the additional data
     a = X_predict.index
@@ -392,35 +384,23 @@ def predict_and_analyze_ext(model, X_test, df, name, top_percentile=90, bottom_p
 
     return top_assets, bottom_assets
 
-# Function to apply the model and get predictions every 10 days
-def apply_model_every_10_days(models, X, df, start_date, end_date):
-    current_date = start_date
-    results_best = {}
-    results_worst = {}
+
+def get_indices_by_date(df, date, date_column=None):
+    df[date_column] = pd.to_datetime(df[date_column])
+    # Filter and return the DataFrame
+    return df[df[date_column] == pd.to_datetime(date)]
+
+
+
+def calculate_trade_volume(df):
+    # Calculate the change in position for each column
+    position_changes = df.diff().fillna(0)  # Using fillna(0) to handle the first 
     
-    while current_date <= end_date:
-        # Slice the next 10 days or until the end_date
-        period_end = min(current_date + pd.DateOffset(days=9), end_date)
-        
-        # Filter X for the current period based on model needs
-        X_period = X.loc[current_date:period_end]
-
-        for name, model in models.items():
-            if current_date == start_date:  # Initialize on first run
-                results_best[name] = []
-                results_worst[name] = []
-
-            # Use only data available up to the current date to avoid lookahead bias
-            df_period = df.loc[df['todate'] <= period_end]
-            best_assets, worst_assets = predict_and_analyze_ext(model, X_period, df_period, name)
-
-            # Store results for the current period
-            results_best[name].append(best_assets)
-            results_worst[name].append(worst_assets)
-        
-        # Move to the next period, 10 days later
-        current_date += pd.DateOffset(days=10)
+    # Count the number of trades: transitions from 0 to 1/-1 or 1/-1 to 0
+    trades = (position_changes.abs() == 1)
     
-    return results_best, results_worst
+    # Sum up the trades for each day to get the volume of trades
+    trade_volume_per_day = trades.sum(axis=1)
+    
+    return trade_volume_per_day
 
-  
