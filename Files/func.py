@@ -402,5 +402,5 @@ def calculate_trade_volume(df):
     # Sum up the trades for each day to get the volume of trades
     trade_volume_per_day = trades.sum(axis=1)
     
-    return trade_volume_per_day
+    return trade_volume_per_day.sum()
 
