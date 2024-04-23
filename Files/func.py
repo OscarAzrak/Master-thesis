@@ -213,23 +213,24 @@ def optimize_and_train_ridge(X_train, y_train, X_train_eval, y_train_eval, param
     model = RidgeClassifier()
 
     # Initialize GridSearchCV with the provided model and parameter grid
-    grid_search = GridSearchCV(model, param_grid, scoring=scoring, cv=cv)
+    #grid_search = GridSearchCV(model, param_grid, scoring=scoring, cv=cv)
     
     # Fit GridSearchCV on the training set
-    grid_search.fit(X_train, y_train)
+    #grid_search.fit(X_train, y_train)
     
     # Print the best parameters and the accuracy on the evaluation set
-    print("Best parameters:", grid_search.best_params_)
-    print("Best accuracy on evaluation set:", grid_search.best_score_)
-    
+    #print("Best parameters:", grid_search.best_params_)
+    #print("Best accuracy on evaluation set:", grid_search.best_score_)
+    best_params = {'alpha': 10.0}
     # Retrain the model with the best parameters on the combined training and evaluation sets
-    model_best = model.__class__(**grid_search.best_params_)
+    #model_best = model.__class__(**grid_search.best_params_)
+    model_best = model.__class__(**best_params)
     model_best.fit(X_train_eval, y_train_eval)
     
     # ändra från klassificierig till sannolikhet
 
 
-    return model_best, grid_search
+    return model_best, best_params
 
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
@@ -239,13 +240,16 @@ def sigmoid(x):
 
 
 def evaluate_model_performance(y_true, y_pred):
- 
+    
+
+
+
     conf_matrix = confusion_matrix(y_true, y_pred)
 
 
-    precision = precision_score(y_true, y_pred)
-    recall = recall_score(y_true, y_pred)
-    f1 = f1_score(y_true, y_pred)
+    precision = precision_score(y_true, y_pred)*100
+    recall = recall_score(y_true, y_pred)*100
+    f1 = f1_score(y_true, y_pred)*100
 
 
     mse = mean_squared_error(y_true, y_pred)
@@ -257,8 +261,8 @@ def evaluate_model_performance(y_true, y_pred):
     print(f"Precision: {precision}")
     print(f"Recall: {recall}")
     print(f"F1 Score: {f1}")
-    print(f"MSE: {mse}")
-    print(f"RMSE: {rmse}")
+    print(f"MSE: {mse*100}")
+    print(f"RMSE: {rmse*100}")
 
     return conf_matrix, precision, recall, f1, mse, rmse
 
@@ -270,11 +274,13 @@ def optimize_and_train_xgb(X_train, y_train, X_eval, y_eval, param_grid, scoring
     xgb_model = xgb.XGBClassifier(use_label_encoder=False, eval_metric='logloss')
 
     # Perform grid search
-    grid_search = GridSearchCV(xgb_model, param_grid, scoring=scoring, cv=cv, n_jobs=n_jobs)
-    grid_search.fit(X_train, y_train, eval_set=[(X_eval, y_eval)], early_stopping_rounds=early_stopping_rounds, verbose=False)
-
+    ##grid_search = GridSearchCV(xgb_model, param_grid, scoring=scoring, cv=cv, n_jobs=n_jobs)
+    ##grid_search.fit(X_train, y_train, eval_set=[(X_eval, y_eval)], early_stopping_rounds=early_stopping_rounds, verbose=False)
     # Extract best hyperparameters
-    best_params = grid_search.best_params_
+    ##best_params = grid_search.best_params_
+
+    best_params = {'learning_rate': 0.1, 'max_depth': 3, 'n_estimators': 50}
+    
     print("Best hyperparameters:", best_params)
 
     # Retrain the model with the best parameters on the combined training and evaluation set
@@ -292,11 +298,13 @@ def optimize_and_train_lgb(X_train, y_train, X_eval, y_eval, param_grid, scoring
     lgb_model = lgb.LGBMClassifier()
 
     # Perform grid search
-    grid_search = GridSearchCV(lgb_model, param_grid, scoring=scoring, cv=cv, n_jobs=n_jobs)
-    grid_search.fit(X_train, y_train)
+    ##grid_search = GridSearchCV(lgb_model, param_grid, scoring=scoring, cv=cv, n_jobs=n_jobs)
+    ##grid_search.fit(X_train, y_train)
 
     # Extract best hyperparameters
-    best_params = grid_search.best_params_
+    ##best_params = grid_search.best_params_
+    best_params =  {'learning_rate': 0.01, 'max_depth': 10, 'n_estimators': 200, 'num_leaves': 31}
+
     print("Best hyperparameters:", best_params)
 
     # Retrain the model with the best parameters on the combined training and evaluation set
@@ -393,14 +401,11 @@ def get_indices_by_date(df, date, date_column=None):
 
 
 def calculate_trade_volume(df):
-    # Calculate the change in position for each column
-    position_changes = df.diff().fillna(0)  # Using fillna(0) to handle the first 
-    
-    # Count the number of trades: transitions from 0 to 1/-1 or 1/-1 to 0
+    position_changes = df.diff().fillna(0)  
+
     trades = (position_changes.abs() == 1)
     
-    # Sum up the trades for each day to get the volume of trades
     trade_volume_per_day = trades.sum(axis=1)
     
-    return trade_volume_per_day.sum()
+    return trade_volume_per_day
 
