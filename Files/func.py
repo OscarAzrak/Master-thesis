@@ -337,7 +337,7 @@ def train_and_evaluate_NN(X_train_eval, y_train_eval, X_eval, y_eval, X_test, y_
 
     # Compile the model
     model.compile(optimizer='adam', loss='mean_squared_error', metrics=['accuracy'])
-
+    # early stopping ifall ingen förbättring med 0.001
     # Train the model
     history = model.fit(
         X_train_eval_scaled, y_train_eval,
@@ -400,6 +400,7 @@ def get_indices_by_date(df, date, date_column=None):
 
 
 def calculate_trade_volume(df):
+    # ha med absolut
     position_changes = df.diff().fillna(0)
 
     trades = position_changes != 0
