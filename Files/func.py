@@ -351,7 +351,7 @@ def train_and_evaluate_NN(X_train_eval, y_train_eval, X_eval, y_eval, X_test, y_
 import numpy as np
 import pandas as pd
 
-def predict_and_analyze_ext(model, X_test, df, name, top_percentile=90, bottom_percentile=10):
+def predict_and_analyze_ext(model, X_test, df, name, top_percentile=80, bottom_percentile=20):
     X_predict = X_test.copy()
 
     # Prediction handling based on model type
@@ -399,13 +399,12 @@ def get_indices_by_date(df, date, date_column=None):
     return df[df[date_column] == pd.to_datetime(date)]
 
 
-
 def calculate_trade_volume(df):
-    position_changes = df.diff().fillna(0)  
+    position_changes = df.diff().fillna(0)
 
-    trades = (position_changes.abs() == 1)
-    
+    trades = position_changes != 0
+
+    # Calculate the sum of trades for each day
     trade_volume_per_day = trades.sum(axis=1)
-    
-    return trade_volume_per_day
 
+    return trade_volume_per_day
