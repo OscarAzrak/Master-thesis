@@ -3,6 +3,7 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense
 from sklearn.preprocessing import StandardScaler
 from tensorflow.keras.metrics import MeanSquaredError, Accuracy
+from keras.callbacks import EarlyStopping
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.linear_model import RidgeClassifier
 from sklearn.metrics import accuracy_score
@@ -317,35 +318,44 @@ def optimize_and_train_lgb(X_train, y_train, X_eval, y_eval, param_grid, scoring
 
 
 def train_and_evaluate_NN(X_train_eval, y_train_eval, X_eval, y_eval, X_test, y_test, epochs=50, batch_size=32):
-
     # Initialize the scaler and scale the data
     scaler = StandardScaler()
-    # undersök data leakage här
     X_train_eval_scaled = scaler.fit_transform(X_train_eval)
     X_eval_scaled = scaler.transform(X_eval)
     X_test_scaled = scaler.transform(X_test)
 
     # Define the model architecture
-    #undersök relu
     model = Sequential([
-    Dense(64, activation='relu', input_shape=(X_train_eval_scaled.shape[1],)),
-    Dense(32, activation='relu'),
-    Dense(16, activation='relu'), 
-    Dense(8, activation='relu'),   
-    Dense(1, activation='sigmoid')  # Output layer for binary classification
+        Dense(64, activation='relu', input_shape=(X_train_eval_scaled.shape[1],)),
+        Dense(32, activation='relu'),
+        Dense(16, activation='relu'), 
+        Dense(8, activation='relu'),   
+        Dense(1, activation='sigmoid')  # Output layer for binary classification
     ])
 
     # Compile the model
     model.compile(optimizer='adam', loss='mean_squared_error', metrics=['accuracy'])
-    # early stopping ifall ingen förbättring med 0.001
-    # Train the model
+
+    # Configure Early Stopping
+    early_stopping = EarlyStopping(
+        monitor='val_loss',    # Monitor validation loss
+        min_delta=0.001,       # Minimum change in the monitored quantity to qualify as an improvement
+        patience=10,           # Number of epochs with no improvement after which training will be stopped
+        verbose=1,             # Verbosity mode
+        restore_best_weights=True  # Restores model weights from the epoch with the best value of the monitored quantity
+    )
+
+    # Train the model with Early Stopping
     history = model.fit(
         X_train_eval_scaled, y_train_eval,
         epochs=epochs,
         batch_size=batch_size,
-        validation_data=(X_eval_scaled, y_eval)
+        validation_data=(X_eval_scaled, y_eval),
+        callbacks=[early_stopping]  # Include Early Stopping callback here
     )
+
     return model, history, X_test_scaled
+
 
 
 import numpy as np
@@ -409,3 +419,103 @@ def calculate_trade_volume(df):
     trade_volume_per_day = trades.sum(axis=1)
 
     return trade_volume_per_day
+
+
+import pandas as pd
+import numpy as np
+from scipy.stats import skew, kurtosis
+
+"""def financial_metrics(daily_returns):
+    # Handle edge cases
+    if cumulative_returns.empty:
+        return "Input series is empty"
+
+    # Ensure data is numeric
+    cumulative_returns = pd.to_numeric(cumulative_returns, errors='coerce')
+    cumulative_returns.dropna(inplace=True)  # Drop any entries that couldn't be converted
+
+    # Handling zeros: Find the first non-zero index in a more robust way
+    non_zero_start = cumulative_returns[cumulative_returns != 0].index.min()
+    if non_zero_start is None:
+        return "No non-zero entries found in the series"
+    
+    cumulative_returns = cumulative_returns.loc[non_zero_start:]  # Start from the first non-zero
+
+    # Convert cumulative returns to daily returns
+    daily_returns = cumulative_returns.pct_change().dropna()  # Remove the NaN value in the first row
+
+    # Cap extreme daily returns values if necessary
+    daily_returns = daily_returns.clip(lower=daily_returns.quantile(0.01), upper=daily_returns.quantile(0.99))
+
+    # Calculate metrics
+    yearly_returns = daily_returns.mean() * 252
+    yearly_std_dev = daily_returns.std() * np.sqrt(252)
+    sharpe_ratio = yearly_returns / yearly_std_dev if yearly_std_dev != 0 else np.nan
+    rolling_max = cumulative_returns.cummax()
+    daily_drawdown = cumulative_returns / rolling_max - 1
+    max_drawdown = daily_drawdown.min()
+    volatility = daily_returns.std() * np.sqrt(252)
+    calmar_ratio = yearly_returns / -max_drawdown if max_drawdown != 0 else np.nan
+    return_skewness = skew(daily_returns)
+    return_kurtosis = kurtosis(daily_returns)
+
+    # Return a dictionary of results
+    return {
+        "Average Yearly Return": yearly_returns,
+        "Average Yearly Standard Deviation": yearly_std_dev,
+        "Sharpe Ratio": sharpe_ratio,
+        "Max Drawdown": max_drawdown,
+        "Volatility": volatility,
+        "Calmar Ratio": calmar_ratio,
+        "Skewness": return_skewness,
+        "Kurtosis": return_kurtosis
+    }
+
+"""
+import pandas as pd
+import numpy as np
+from scipy.stats import skew, kurtosis
+
+def financial_metrics(daily_returns):
+    # Handle edge cases
+    if daily_returns.empty:
+        return "Input series is empty"
+
+    # Ensure data is numeric
+    daily_returns = pd.to_numeric(daily_returns, errors='coerce')
+    daily_returns.dropna(inplace=True)  # Drop any entries that couldn't be converted
+
+    # Handling zeros: Find the first non-zero index in a more robust way
+    non_zero_start = daily_returns[daily_returns != 0].index.min()
+    if non_zero_start is None:
+        return "No non-zero entries found in the series"
+    
+    daily_returns = daily_returns.loc[non_zero_start:]  # Start from the first non-zero
+
+    # Calculate metrics
+    yearly_returns = daily_returns.mean() * 252
+    yearly_std_dev = daily_returns.std() * np.sqrt(252)
+    sharpe_ratio = yearly_returns / yearly_std_dev if yearly_std_dev != 0 else np.nan
+
+    # Calculate cumulative returns for max drawdown calculation
+    cumulative_returns = (1 + daily_returns).cumprod() - 1
+    rolling_max = cumulative_returns.cummax()
+    daily_drawdown = cumulative_returns / rolling_max - 1
+    max_drawdown = daily_drawdown.min()
+
+    volatility = daily_returns.std() * np.sqrt(252)
+    calmar_ratio = yearly_returns / -max_drawdown if max_drawdown != 0 else np.nan
+    return_skewness = skew(daily_returns)
+    return_kurtosis = kurtosis(daily_returns)
+
+    # Return a dictionary of results
+    return {
+        "Average Yearly Return": yearly_returns,
+        "Average Yearly Standard Deviation": yearly_std_dev,
+        "Sharpe Ratio": sharpe_ratio,
+        "Max Drawdown": max_drawdown,
+        "Volatility": volatility,
+        "Calmar Ratio": calmar_ratio,
+        "Skewness": return_skewness,
+        "Kurtosis": return_kurtosis
+    }
