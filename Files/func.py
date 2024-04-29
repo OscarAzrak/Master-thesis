@@ -14,6 +14,7 @@ import xgboost as xgb
 import re
 import pickle
 import lightgbm as lgb
+from scipy.stats import skew, kurtosis
 pd.set_option('display.max_columns', None)
 pd.set_option('display.max_rows', None)
 
@@ -421,59 +422,6 @@ def calculate_trade_volume(df):
     return trade_volume_per_day
 
 
-import pandas as pd
-import numpy as np
-from scipy.stats import skew, kurtosis
-
-"""def financial_metrics(daily_returns):
-    # Handle edge cases
-    if cumulative_returns.empty:
-        return "Input series is empty"
-
-    # Ensure data is numeric
-    cumulative_returns = pd.to_numeric(cumulative_returns, errors='coerce')
-    cumulative_returns.dropna(inplace=True)  # Drop any entries that couldn't be converted
-
-    # Handling zeros: Find the first non-zero index in a more robust way
-    non_zero_start = cumulative_returns[cumulative_returns != 0].index.min()
-    if non_zero_start is None:
-        return "No non-zero entries found in the series"
-    
-    cumulative_returns = cumulative_returns.loc[non_zero_start:]  # Start from the first non-zero
-
-    # Convert cumulative returns to daily returns
-    daily_returns = cumulative_returns.pct_change().dropna()  # Remove the NaN value in the first row
-
-    # Cap extreme daily returns values if necessary
-    daily_returns = daily_returns.clip(lower=daily_returns.quantile(0.01), upper=daily_returns.quantile(0.99))
-
-    # Calculate metrics
-    yearly_returns = daily_returns.mean() * 252
-    yearly_std_dev = daily_returns.std() * np.sqrt(252)
-    sharpe_ratio = yearly_returns / yearly_std_dev if yearly_std_dev != 0 else np.nan
-    rolling_max = cumulative_returns.cummax()
-    daily_drawdown = cumulative_returns / rolling_max - 1
-    max_drawdown = daily_drawdown.min()
-    volatility = daily_returns.std() * np.sqrt(252)
-    calmar_ratio = yearly_returns / -max_drawdown if max_drawdown != 0 else np.nan
-    return_skewness = skew(daily_returns)
-    return_kurtosis = kurtosis(daily_returns)
-
-    # Return a dictionary of results
-    return {
-        "Average Yearly Return": yearly_returns,
-        "Average Yearly Standard Deviation": yearly_std_dev,
-        "Sharpe Ratio": sharpe_ratio,
-        "Max Drawdown": max_drawdown,
-        "Volatility": volatility,
-        "Calmar Ratio": calmar_ratio,
-        "Skewness": return_skewness,
-        "Kurtosis": return_kurtosis
-    }
-
-"""
-import pandas as pd
-import numpy as np
 from scipy.stats import skew, kurtosis
 
 def financial_metrics(daily_returns):
@@ -481,11 +429,10 @@ def financial_metrics(daily_returns):
     if daily_returns.empty:
         return "Input series is empty"
 
-    # Ensure data is numeric
     daily_returns = pd.to_numeric(daily_returns, errors='coerce')
     daily_returns.dropna(inplace=True)  # Drop any entries that couldn't be converted
 
-    # Handling zeros: Find the first non-zero index in a more robust way
+    # Find the first non-zero index in a more robust way
     non_zero_start = daily_returns[daily_returns != 0].index.min()
     if non_zero_start is None:
         return "No non-zero entries found in the series"
@@ -519,3 +466,32 @@ def financial_metrics(daily_returns):
         "Skewness": return_skewness,
         "Kurtosis": return_kurtosis
     }
+
+
+
+def calculate_momentum_based_benchmark(df, windows=[252, 126, 63]):  # 12 months, 6 months, and 3 months
+    features_df = add_features(df, windows)
+
+    # Initialize DataFrame to hold momentum ranks
+    ranks_df = pd.DataFrame(index=df.index)
+
+    # Calculate ranks for each momentum period and average them
+    for w in windows:
+        momentum_cols = [f'{col}_momentum_{w}' for col in df.columns if 'macro' not in col.lower()]
+        # Rank assets based on momentum, higher momentum is better, hence ascending=False
+        rank_df = features_df[momentum_cols].rank(axis=1, ascending=False)
+        ranks_df = pd.concat([ranks_df, rank_df], axis=1)
+
+    # Calculate average rank
+    ranks_df['average_rank'] = ranks_df.mean(axis=1)
+
+    # Determine long and short positions
+    ranks_df['long'] = ranks_df['average_rank'] <= ranks_df['average_rank'].quantile(0.2)
+    ranks_df['short'] = ranks_df['average_rank'] >= ranks_df['average_rank'].quantile(0.8)
+
+    # Calculate weights: longs +1, shorts -1, normalize to sum up to 1 in absolute terms
+    ranks_df['weights'] = 0
+    ranks_df.loc[ranks_df['long'], 'weights'] = 1 / ranks_df['long'].sum()
+    ranks_df.loc[ranks_df['short'], 'weights'] = -1 / ranks_df['short'].sum()
+
+    return ranks_df[['long', 'short', 'weights']]
