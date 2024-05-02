@@ -318,7 +318,7 @@ def optimize_and_train_lgb(X_train, y_train, X_eval, y_eval, param_grid, scoring
 
 
 
-def train_and_evaluate_NN(X_train_eval, y_train_eval, X_eval, y_eval, X_test, y_test, epochs=50, batch_size=32):
+def train_and_evaluate_NN(X_train_eval, y_train_eval, X_eval, y_eval, X_test, y_test, epochs=5, batch_size=32):
     # Initialize the scaler and scale the data
     scaler = StandardScaler()
     X_train_eval_scaled = scaler.fit_transform(X_train_eval)
@@ -495,3 +495,95 @@ def calculate_momentum_based_benchmark(df, windows=[252, 126, 63]):  # 12 months
     ranks_df.loc[ranks_df['short'], 'weights'] = -1 / ranks_df['short'].sum()
 
     return ranks_df[['long', 'short', 'weights']]
+
+def calculate_portfolio_volatility(weights, returns):
+    cov_matrix = returns.cov()  # Covariance matrix of the returns
+    portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))  # Portfolio volatility
+    return portfolio_volatility
+
+def determine_leverage_factors(portfolio_volatilities, target_volatility=0.10):
+    # Handle division by zero and ensure no division by zero error
+    # Replace zero volatility with NaN to avoid infinite leverage
+    non_zero_volatility = portfolio_volatilities.replace(0, np.nan)
+    
+    # Calculate the leverage factor for each day
+    leverage_factors = target_volatility / non_zero_volatility
+    
+    return leverage_factors
+
+
+def apply_leverage(weights, leverage_factor):
+    # Apply the calculated leverage factor to adjust weights
+    return weights * leverage_factor
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def calculate_momentum(df, windows=[63, 126, 252]):
+    """ Calculate momentum for specified windows and average them. """
+    momentum_df = pd.DataFrame(index=df.index)
+    for window in windows:
+        rolled = df.rolling(window=window, min_periods=1).mean()  # Using mean as a placeholder for any momentum calculation
+        momentum_df[f'momentum_{window}'] = rolled.mean(axis=1)  # Mean across assets, adjust as necessary
+    momentum_df['avg_momentum'] = momentum_df.mean(axis=1, skipna=True)
+    return momentum_df
+
+
+def rank_and_allocate(momentum_df, top_n=0.2, bottom_n=0.2):
+    """ Rank assets based on their momentum and allocate long/short positions. """
+    num_assets = len(momentum_df.columns)
+    ranks = momentum_df['avg_momentum'].rank(ascending=False)
+
+    long_positions = ranks <= (num_assets * top_n)
+    short_positions = ranks > (num_assets * (1 - bottom_n))
+
+    weights = pd.Series(index=momentum_df.index, dtype=float)
+    total_long = long_positions.sum()
+    total_short = short_positions.sum()
+
+    weights[long_positions] = 1.0 / total_long if total_long > 0 else 0
+    weights[short_positions] = -1.0 / total_short if total_short > 0 else 0
+
+    return weights
+
+
+def create_benchmark_portfolio(df, hold_days=252):
+    """ Create a benchmark portfolio based on momentum. """
+    momentum_df = calculate_momentum(df)  # Your existing function to calculate momentum
+    portfolio_weights = pd.DataFrame(0, index=df.index, columns=df.columns)  # Initialize weights DataFrame
+
+    for start_date in df.index:
+        end_date = start_date + pd.DateOffset(days=hold_days - 1)
+        if end_date > df.index[-1]:  # Ensure end_date is within the DataFrame's range
+            continue
+
+        current_momentum = momentum_df.loc[start_date:end_date]
+        weights = rank_and_allocate(current_momentum)  # Your function to calculate weights based on rankings
+
+        # Ensure weights array length matches the slice length
+        date_range = pd.date_range(start_date, end_date)
+        if len(weights) == len(date_range):
+            portfolio_weights.loc[date_range] = weights.values[:, None]  # Broadcasting weights across all asset columns
+        
+
+    # Zero out any MACRO related weights to ensure they do not influence the portfolio
+    macro_columns = [col for col in df.columns if 'MACRO' in col]
+    portfolio_weights[macro_columns] = 0
+
+    return portfolio_weights
