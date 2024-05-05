@@ -469,53 +469,31 @@ def financial_metrics(daily_returns):
 
 
 
-def calculate_momentum_based_benchmark(df, windows=[252, 126, 63]):  # 12 months, 6 months, and 3 months
-    features_df = add_features(df, windows)
 
-    # Initialize DataFrame to hold momentum ranks
-    ranks_df = pd.DataFrame(index=df.index)
 
-    # Calculate ranks for each momentum period and average them
-    for w in windows:
-        momentum_cols = [f'{col}_momentum_{w}' for col in df.columns if 'macro' not in col.lower()]
-        # Rank assets based on momentum, higher momentum is better, hence ascending=False
-        rank_df = features_df[momentum_cols].rank(axis=1, ascending=False)
-        ranks_df = pd.concat([ranks_df, rank_df], axis=1)
 
-    # Calculate average rank
-    ranks_df['average_rank'] = ranks_df.mean(axis=1)
-
-    # Determine long and short positions
-    ranks_df['long'] = ranks_df['average_rank'] <= ranks_df['average_rank'].quantile(0.2)
-    ranks_df['short'] = ranks_df['average_rank'] >= ranks_df['average_rank'].quantile(0.8)
-
-    # Calculate weights: longs +1, shorts -1, normalize to sum up to 1 in absolute terms
-    ranks_df['weights'] = 0
-    ranks_df.loc[ranks_df['long'], 'weights'] = 1 / ranks_df['long'].sum()
-    ranks_df.loc[ranks_df['short'], 'weights'] = -1 / ranks_df['short'].sum()
-
-    return ranks_df[['long', 'short', 'weights']]
 
 def calculate_portfolio_volatility(weights, returns):
-    cov_matrix = returns.cov()  # Covariance matrix of the returns
-    portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))  # Portfolio volatility
-    return portfolio_volatility
+    """ Calculate portfolio volatility as the square root of (W.T * Cov * W) """
+    cov_matrix = returns.cov()
+    if weights.shape[0] != cov_matrix.T.shape[0]:
+        raise ValueError("Dimension mismatch")
+    return np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
 
-def determine_leverage_factors(portfolio_volatilities, target_volatility=0.10):
-    # Handle division by zero and ensure no division by zero error
-    # Replace zero volatility with NaN to avoid infinite leverage
-    non_zero_volatility = portfolio_volatilities.replace(0, np.nan)
-    
-    # Calculate the leverage factor for each day
-    leverage_factors = target_volatility / non_zero_volatility
-    
-    return leverage_factors
 
+def determine_leverage_factors(portfolio_volatility, target_volatility=0.10):
+    """ Determine leverage factors based on target volatility """
+    if portfolio_volatility == 0:
+        return 0
+    return target_volatility / portfolio_volatility
 
 def apply_leverage(weights, leverage_factor):
     # Apply the calculated leverage factor to adjust weights
     return weights * leverage_factor
 
+def calculate_annualized_volatility(df, window=252):
+    """ Calculate the annualized volatility for each asset in the dataframe. """
+    return df.rolling(window=window).std() * np.sqrt(window)
 
 
 
