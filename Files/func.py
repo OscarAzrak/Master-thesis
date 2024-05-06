@@ -362,7 +362,7 @@ def train_and_evaluate_NN(X_train_eval, y_train_eval, X_eval, y_eval, X_test, y_
 import numpy as np
 import pandas as pd
 
-def predict_and_analyze_ext(model, X_test, df, name, top_percentile=80, bottom_percentile=20):
+def predict_and_analyze_ext(model, X_test, df, name, top_percentile=90, bottom_percentile=10):
     X_predict = X_test.copy()
 
     # Prediction handling based on model type
@@ -497,7 +497,74 @@ def calculate_annualized_volatility(df, window=252):
 
 
 
+def update_df_with_asset_performance(signals_df, portfolio_df, target_days, returns_df, target_volatility=0.10):
+    # Calculate volatilities using the existing function for annualized volatility
+    volatilities = calculate_annualized_volatility(returns_df.fillna(0))
+    
+    # Ensure portfolio DataFrame columns are of float type to avoid dtype issues when updating
+    portfolio_df = portfolio_df.astype(float)
+    
+    # Convert signals DataFrame index to datetime if it's not already
+    signals_df.index = pd.to_datetime(signals_df.index)
+    
+    # Start processing from the first date in signals_df
+    current_date = signals_df.index.min()
 
+    while current_date <= signals_df.index.max():
+        if current_date in signals_df.index:
+            current_index = signals_df.index.get_loc(current_date)
+            row = signals_df.loc[current_date]
+            # Filter for assets with non-zero values (either 1 or -1)
+            assets = row[row != 0].index.tolist()
+            asset_signals = row[row != 0].values  # Get the signals (1 or -1)
+            
+            if assets:
+                # Calculate index for start and end dates based on trading days
+                start_index = current_index + 2  # Start two trading days after the current date
+                if start_index < len(signals_df):
+                    start_date = signals_df.index[start_index]
+                    end_index = start_index + target_days - 1
+                    if end_index < len(signals_df):
+                        end_date = signals_df.index[end_index]
+                    else:
+                        end_date = signals_df.index[-1]
+
+                    if start_date in volatilities.index:
+                        # Asset vol on start date for buying or shorting assets
+                        asset_vols = volatilities.loc[start_date, assets]
+                        weights = 1 / asset_vols
+                        normalized_weights = weights / weights.sum()  # Normalize weights
+                        
+                        adjusted_weights = normalized_weights * asset_signals  # Apply signals (-1 for short, 1 for long)
+                        
+                        # Get past returns for the assets
+                        past_returns = returns_df.loc[start_date - pd.DateOffset(days=target_days):start_date, assets]
+                        
+                        # Calculate portfolio volatility and determine leverage factors and apply leverage factor
+                        port_vol = calculate_portfolio_volatility(adjusted_weights, past_returns)
+                        leverage = determine_leverage_factors(port_vol, target_volatility)
+                        adjusted_weights *= leverage  
+                        
+                        # Update the portfolio DataFrame for the holding period
+                        portfolio_df.loc[start_date:end_date, assets] = adjusted_weights.values
+
+                    if (end_index + 1) < len(signals_df):  # Check if there's a next date after end_date
+                        next_date = signals_df.index[end_index - 1]  # Move to the day after end_date
+                        # Check for signals on the next_date
+                        if next_date in signals_df.index and any(signals_df.loc[next_date, assets] != 0):
+                            current_date = next_date  # Move to the next valid date with signals
+                    else:
+                        break  # Exit loop if no more dates are available after end_date
+                else:
+                    break  # Exit loop if start_index is out of range
+            else:
+                # If no assets, simply move to the next day
+                current_date += pd.DateOffset(days=1)
+        else:
+            # If current date is not in signals_df, move to the next day
+            current_date += pd.DateOffset(days=1)
+
+    return portfolio_df
 
 
 
