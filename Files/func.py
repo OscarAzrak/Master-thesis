@@ -493,9 +493,11 @@ def apply_leverage(weights, leverage_factor):
 
 def calculate_annualized_volatility(df, window=252):
     """ Calculate the annualized volatility for each asset in the dataframe. """
-    return df.rolling(window=window).std() * np.sqrt(window)
+    return df.rolling(window=window, min_periods = int(window//2)).std() * np.sqrt(window)
 
 
+import pandas as pd
+import numpy as np
 
 def update_df_with_asset_performance(signals_df, portfolio_df, target_days, returns_df, target_volatility=0.10):
     # Calculate volatilities using the existing function for annualized volatility
@@ -514,64 +516,44 @@ def update_df_with_asset_performance(signals_df, portfolio_df, target_days, retu
         if current_date in signals_df.index:
             current_index = signals_df.index.get_loc(current_date)
             row = signals_df.loc[current_date]
-            # Filter for assets with non-zero values (either 1 or -1)
             assets = row[row != 0].index.tolist()
-            asset_signals = row[row != 0].values  # Get the signals (1 or -1)
+            asset_signals = row[row != 0].values
             
             if assets:
-                # Calculate index for start and end dates based on trading days
                 start_index = current_index + 2  # Start two trading days after the current date
                 if start_index < len(signals_df):
                     start_date = signals_df.index[start_index]
                     end_index = start_index + target_days - 1
-                    if end_index < len(signals_df):
-                        end_date = signals_df.index[end_index]
-                    else:
-                        end_date = signals_df.index[-1]
+                    end_date = signals_df.index[min(end_index, len(signals_df)-1)]
 
-                    if start_date in volatilities.index:
-                        # Asset vol on start date for buying or shorting assets
-                        asset_vols = volatilities.loc[start_date, assets]
-                        weights = 1 / asset_vols
-                        normalized_weights = weights / weights.sum()  # Normalize weights
-                        
-                        adjusted_weights = normalized_weights * asset_signals  # Apply signals (-1 for short, 1 for long)
-                        
-                        # Get past returns for the assets
-                        past_returns = returns_df.loc[start_date - pd.DateOffset(days=target_days):start_date, assets]
-                        
-                        # Calculate portfolio volatility and determine leverage factors and apply leverage factor
-                        port_vol = calculate_portfolio_volatility(adjusted_weights, past_returns)
-                        leverage = determine_leverage_factors(port_vol, target_volatility)
-                        adjusted_weights *= leverage  
-                        
-                        # Update the portfolio DataFrame for the holding period
-                        portfolio_df.loc[start_date:end_date, assets] = adjusted_weights.values
+                    # Your existing logic for volatilities and weights
+                    vol_ = returns_df.loc[start_date-pd.DateOffset(days=252):start_date, assets].std() * np.sqrt(252)
+                    weights = 1 / vol_
+                    normalized_weights = weights / weights.sum()
+                    adjusted_weights = normalized_weights * asset_signals
 
-                    if (end_index + 1) < len(signals_df):  # Check if there's a next date after end_date
-                        next_date = signals_df.index[end_index - 1]  # Move to the day after end_date
-                        # Check for signals on the next_date
-                        if next_date in signals_df.index and any(signals_df.loc[next_date, assets] != 0):
-                            current_date = next_date  # Move to the next valid date with signals
+                    past_returns = returns_df.loc[start_date - pd.DateOffset(days=target_days):start_date, assets]
+                    port_vol = calculate_portfolio_volatility(adjusted_weights, past_returns) * np.sqrt(252)
+                    leverage = determine_leverage_factors(port_vol, target_volatility)
+                    print('leverage', leverage)
+                    adjusted_weights *= leverage
+                    
+                    # Update portfolio
+                    portfolio_df.loc[start_date:end_date, assets] = adjusted_weights.values
+
+                    # Set current_date to one day before end_date
+                    if (end_index - 1) < len(signals_df):
+                        current_date = signals_df.index[end_index - 1]
                     else:
-                        break  # Exit loop if no more dates are available after end_date
+                        break  # If end_index - 1 is out of bounds
                 else:
-                    break  # Exit loop if start_index is out of range
+                    break  # start_index is out of range
             else:
-                # If no assets, simply move to the next day
-                current_date += pd.DateOffset(days=1)
+                current_date += pd.DateOffset(days=1)  # No assets to process, move to next day
         else:
-            # If current date is not in signals_df, move to the next day
-            current_date += pd.DateOffset(days=1)
+            current_date += pd.DateOffset(days=1)  # Current date not in signals_df, move to next day
 
     return portfolio_df
-
-
-
-
-
-
-
 
 
 
@@ -632,3 +614,48 @@ def create_benchmark_portfolio(df, hold_days=252):
     portfolio_weights[macro_columns] = 0
 
     return portfolio_weights
+
+
+import pandas as pd
+import numpy as np
+
+def rank_and_analyze_assets(df_read, X_test, df, columns_to_rank,date_col='todate', top_percentile=90, bottom_percentile=10):
+    df_ranks = add_features(df_read, [63, 126, 252])
+
+    #only keep columns with "momentum"
+    X_ranked = df_ranks.filter(regex='momentum')
+    X_ranked_trans = transform_and_pivot_df(X_ranked, date_col)
+    # Copy the dataframe to avoid modifying the original
+    
+
+    # Apply ranking for each specified column and create a new column for each rank
+    for col in columns_to_rank:
+        X_ranked[col + '_rank'] = X_ranked[col].rank(method='average')
+
+    # Calculate the mean of ranks across specified columns
+    rank_columns = [col + '_rank' for col in columns_to_rank]
+    X_ranked['mean_rank'] = X_ranked[rank_columns].mean(axis=1)
+
+    # Merge the rank data with additional data such as 'asset' and 'todate'
+    a = X_ranked.index
+    b = df.index.intersection(a)
+    c = df.loc[b, ['asset', 'todate']]
+    d = X_ranked[['mean_rank']].join(c)
+
+    # Calculate the top and bottom percentiles for the mean rank
+    e_top = d.groupby('todate')['mean_rank'].apply(lambda x: np.percentile(x, top_percentile))
+    e_bottom = d.groupby('todate')['mean_rank'].apply(lambda x: np.percentile(x, bottom_percentile))
+
+    # Convert to DataFrame and merge thresholds back with the ranked data
+    e_top_df = e_top.reset_index()
+    e_top_df.columns = ['todate', 'top_threshold']
+    e_bottom_df = e_bottom.reset_index()
+    e_bottom_df.columns = ['todate', 'bottom_threshold']
+
+    d_merged = d.merge(e_top_df, on='todate').merge(e_bottom_df, on='todate')
+    
+    # Select top and bottom assets based on thresholds
+    top_assets = d_merged[d_merged['mean_rank'] >= d_merged['top_threshold']]
+    bottom_assets = d_merged[d_merged['mean_rank'] <= d_merged['bottom_threshold']]
+
+    return top_assets, bottom_assets
