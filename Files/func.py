@@ -159,10 +159,14 @@ def add_y_col(df, df_read, date_col, target_days, return_col, volatility_col):
     df['sharpe_ratio_mean'] = df['sharpe_ratio_mean'].shift(-target_days)
 
     df = df.dropna()
-
-    df['Y'] = np.where(df['sharpe_ratio'] > df['sharpe_ratio_mean'], 1, 0)
     
-
+    
+    # cross time series
+    #df['Y'] = np.where(df['sharpe_ratio'] > df['sharpe_ratio_mean'], 1, 0)
+    
+    # time series 
+    df['Y'] = np.where(df['sharpe_ratio'] > 0, 1, 0)
+    
     df = df.drop(columns=['sharpe_ratio', 'sharpe_ratio_mean', return_col, volatility_col])
 
     
@@ -411,7 +415,7 @@ def get_indices_by_date(df, date, date_column=None):
 
 
 def calculate_trade_volume(df):
-    # ha med absolut
+    # ha med absolut diff sum 
     position_changes = df.diff().fillna(0)
 
     trades = position_changes != 0
@@ -527,7 +531,7 @@ def update_df_with_asset_performance(signals_df, portfolio_df, target_days, retu
                     end_date = signals_df.index[min(end_index, len(signals_df)-1)]
 
                     # Your existing logic for volatilities and weights
-                    vol_ = returns_df.loc[start_date-pd.DateOffset(days=252):start_date, assets].std() * np.sqrt(252)
+                    vol_ = returns_df.loc[start_date-pd.DateOffset(days=252):start_date, assets].std()
                     weights = 1 / vol_
                     normalized_weights = weights / weights.sum()
                     adjusted_weights = normalized_weights * asset_signals
@@ -535,7 +539,6 @@ def update_df_with_asset_performance(signals_df, portfolio_df, target_days, retu
                     past_returns = returns_df.loc[start_date - pd.DateOffset(days=target_days):start_date, assets]
                     port_vol = calculate_portfolio_volatility(adjusted_weights, past_returns) * np.sqrt(252)
                     leverage = determine_leverage_factors(port_vol, target_volatility)
-                    print('leverage', leverage)
                     adjusted_weights *= leverage
                     
                     # Update portfolio
