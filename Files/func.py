@@ -162,10 +162,10 @@ def add_y_col(df, df_read, date_col, target_days, return_col, volatility_col):
     
     
     # cross time series
-    #df['Y'] = np.where(df['sharpe_ratio'] > df['sharpe_ratio_mean'], 1, 0)
+    df['Y'] = np.where(df['sharpe_ratio'] > df['sharpe_ratio_mean'], 1, 0)
     
     # time series 
-    df['Y'] = np.where(df['sharpe_ratio'] > 0, 1, 0)
+    #df['Y'] = np.where(df['sharpe_ratio'] > 0, 1, 0)
     
     df = df.drop(columns=['sharpe_ratio', 'sharpe_ratio_mean', return_col, volatility_col])
 
@@ -366,7 +366,37 @@ def train_and_evaluate_NN(X_train_eval, y_train_eval, X_eval, y_eval, X_test, y_
 import numpy as np
 import pandas as pd
 
-def predict_and_analyze_ext(model, X_test, df, name, top_percentile=90, bottom_percentile=10):
+def predict_and_analyze_ext(model, X_test, df, name, df_read, date_col, top_percentile=90, bottom_percentile=10):
+    
+    if name == 'benchmark':
+                
+        df_ranks = add_features(df_read, [63, 126, 252])
+
+        #only keep columns with "momentum"
+        X_ranked = df_ranks.filter(regex='momentum')
+
+        X_ranked_trans = transform_and_pivot_df(X_ranked, date_col)
+        columns_to_rank = X_ranked_trans.filter(regex='momentum').columns
+
+        for col in columns_to_rank:
+            X_ranked_trans[col + '_rank'] = X_ranked_trans[col].rank(method='average')
+        
+        rank_columns = [col + '_rank' for col in columns_to_rank]
+        X_ranked_trans[name] = X_ranked_trans[rank_columns].mean(axis=1)
+        
+        ranked_top_10 = X_ranked_trans.groupby('todate')[name].apply(lambda x: np.percentile(x, 90))
+        ranked_bottom_10 = X_ranked_trans.groupby('todate')[name].apply(lambda x: np.percentile(x, 10))
+        
+        ranked_top_10_df = ranked_top_10.reset_index()
+        ranked_top_10_df.columns = ['todate', 'top_threshold']
+        ranked_bottom_10_df = ranked_bottom_10.reset_index()
+        ranked_bottom_10_df.columns = ['todate', 'bottom_threshold']
+        ranked_merged = X_ranked_trans.merge(ranked_top_10_df, on='todate').merge(ranked_bottom_10_df, on='todate')
+        top_assets = ranked_merged[ranked_merged[name] >= ranked_merged['top_threshold']]
+        bottom_assets = ranked_merged[ranked_merged[name] <= ranked_merged['bottom_threshold']]
+        return top_assets, bottom_assets
+    
+    
     X_predict = X_test.copy()
 
     # Prediction handling based on model type
@@ -414,10 +444,13 @@ def get_indices_by_date(df, date, date_column=None):
     return df[df[date_column] == pd.to_datetime(date)]
 
 
-def calculate_trade_volume(df):
-    # ha med absolut diff sum 
-    position_changes = df.diff().fillna(0)
+import pandas as pd
 
+def calculate_trade_volume(df):
+    # Calculate the absolute difference between consecutive days
+    position_changes = df.diff().abs().fillna(0)
+
+    # Any non-zero value in position_changes indicates a trade
     trades = position_changes != 0
 
     # Calculate the sum of trades for each day
@@ -426,9 +459,10 @@ def calculate_trade_volume(df):
     return trade_volume_per_day
 
 
+
 from scipy.stats import skew, kurtosis
 
-def financial_metrics(daily_returns):
+def financial_metrics(daily_returns, weights):
     # Handle edge cases
     if daily_returns.empty:
         return "Input series is empty"
@@ -459,6 +493,9 @@ def financial_metrics(daily_returns):
     return_skewness = skew(daily_returns)
     return_kurtosis = kurtosis(daily_returns)
 
+    trades = calculate_trade_volume(weights)
+
+
     # Return a dictionary of results
     return {
         "Average Yearly Return": yearly_returns,
@@ -468,7 +505,9 @@ def financial_metrics(daily_returns):
         "Volatility": volatility,
         "Calmar Ratio": calmar_ratio,
         "Skewness": return_skewness,
-        "Kurtosis": return_kurtosis
+        "Kurtosis": return_kurtosis,
+        "Trades": trades.sum()
+
     }
 
 
