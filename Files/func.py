@@ -4,17 +4,20 @@ from tensorflow.keras.layers import Dense
 from sklearn.preprocessing import StandardScaler
 from tensorflow.keras.metrics import MeanSquaredError, Accuracy
 from keras.callbacks import EarlyStopping
+from scikeras.wrappers  import KerasClassifier
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.linear_model import RidgeClassifier
 from sklearn.metrics import accuracy_score
 from sklearn.metrics import confusion_matrix, precision_score, recall_score, f1_score
 from sklearn.metrics import mean_squared_error
+from sklearn.metrics import balanced_accuracy_score, make_scorer
 import numpy as np
 import xgboost as xgb
 import re
 import pickle
 import lightgbm as lgb
 from scipy.stats import skew, kurtosis
+
 pd.set_option('display.max_columns', None)
 pd.set_option('display.max_rows', None)
 
@@ -142,7 +145,7 @@ def transform_and_pivot_df(df, date_col):
     
     return final_df
 
-def add_y_col(df, df_read, date_col, target_days, return_col, volatility_col):
+def add_y_col(df, df_read, date_col, target_days, return_col, volatility_col, cross):
     df_target = add_target(df_read, [target_days])
     df_combined = pd.concat([df, df_target], axis=1)
     df = transform_and_pivot_df(df_combined, date_col)
@@ -150,24 +153,27 @@ def add_y_col(df, df_read, date_col, target_days, return_col, volatility_col):
     return_col = return_col + '_' + str(target_days)
     volatility_col = volatility_col + '_' + str(target_days)
 
-    
-    sharpe_ratio_mean = df.groupby(date_col)['sharpe_ratio'].mean().rename('sharpe_ratio_mean')
-    df = df.merge(sharpe_ratio_mean, on=date_col)
+    if cross == True:
+        # cross time series
+        sharpe_ratio_mean = df.groupby(date_col)['sharpe_ratio'].mean().rename('sharpe_ratio_mean')
+        df = df.merge(sharpe_ratio_mean, on=date_col)
 
-    #shift the sharpe ratio by target_days
-    df['sharpe_ratio'] = df['sharpe_ratio'].shift(-target_days)
-    df['sharpe_ratio_mean'] = df['sharpe_ratio_mean'].shift(-target_days)
+        df['sharpe_ratio'] = df['sharpe_ratio'].shift(-target_days)
+        df['sharpe_ratio_mean'] = df['sharpe_ratio_mean'].shift(-target_days)
+        df = df.dropna()
 
-    df = df.dropna()
-    
-    
-    # cross time series
-    df['Y'] = np.where(df['sharpe_ratio'] > df['sharpe_ratio_mean'], 1, 0)
-    
-    # time series 
-    #df['Y'] = np.where(df['sharpe_ratio'] > 0, 1, 0)
-    
-    df = df.drop(columns=['sharpe_ratio', 'sharpe_ratio_mean', return_col, volatility_col])
+        df['Y'] = np.where(df['sharpe_ratio'] > df['sharpe_ratio_mean'], 1, 0)
+        df = df.drop(columns=['sharpe_ratio', 'sharpe_ratio_mean', return_col, volatility_col])
+
+    elif cross == False:
+        # time series
+        df['sharpe_ratio'] = df['sharpe_ratio'].shift(-target_days)
+
+        df = df.dropna()
+
+        df['Y'] = np.where(df['sharpe_ratio'] > 0, 1, 0)
+        df = df.drop(columns=['sharpe_ratio', return_col, volatility_col])
+
 
     
     return df
@@ -214,29 +220,32 @@ def prepare_training_dataset(df, date_col, shuffle=False, train_split=0.25, eval
 
 
 
-def optimize_and_train_ridge(X_train, y_train, X_train_eval, y_train_eval, param_grid, scoring='accuracy', cv=5):
+def optimize_and_train_ridge(X_train, y_train, X_train_eval, y_train_eval, param_grid, cross, cv=5):
 
     model = RidgeClassifier()
-
+    if cross:
+        scoring = 'accuracy'
+    else:
+        scoring = make_scorer(balanced_accuracy_score)
     # Initialize GridSearchCV with the provided model and parameter grid
-    #grid_search = GridSearchCV(model, param_grid, scoring=scoring, cv=cv)
+    grid_search = GridSearchCV(model, param_grid, scoring=scoring, cv=cv)
     
     # Fit GridSearchCV on the training set
-    #grid_search.fit(X_train, y_train)
+    grid_search.fit(X_train, y_train)
     
     # Print the best parameters and the accuracy on the evaluation set
-    #print("Best parameters:", grid_search.best_params_)
-    #print("Best accuracy on evaluation set:", grid_search.best_score_)
-    best_params = {'alpha': 10.0}
+    print("Best parameters:", grid_search.best_params_)
+    print("Best accuracy on evaluation set:", grid_search.best_score_)
+    #best_params = {'alpha': 10.0}
     # Retrain the model with the best parameters on the combined training and evaluation sets
-    #model_best = model.__class__(**grid_search.best_params_)
-    model_best = model.__class__(**best_params)
+    model_best = model.__class__(**grid_search.best_params_)
+    #model_best = model.__class__(**best_params)
     model_best.fit(X_train_eval, y_train_eval)
     
     # ändra från klassificierig till sannolikhet
 
 
-    return model_best, best_params
+    return model_best, grid_search.best_params_
 
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
@@ -274,18 +283,21 @@ def evaluate_model_performance(y_true, y_pred):
 
 
 
-def optimize_and_train_xgb(X_train, y_train, X_eval, y_eval, param_grid, scoring='accuracy', cv=5, n_jobs=-1, early_stopping_rounds=10):
-
+def optimize_and_train_xgb(X_train, y_train, X_eval, y_eval, param_grid, cross, cv=5, n_jobs=-1, early_stopping_rounds=10):
+    if cross:
+        scoring = 'accuracy'
+    else:
+        scoring = make_scorer(balanced_accuracy_score)
     # Initialize the XGBoost model
     xgb_model = xgb.XGBClassifier(use_label_encoder=False, eval_metric='logloss')
 
     # Perform grid search
-    ##grid_search = GridSearchCV(xgb_model, param_grid, scoring=scoring, cv=cv, n_jobs=n_jobs)
-    ##grid_search.fit(X_train, y_train, eval_set=[(X_eval, y_eval)], early_stopping_rounds=early_stopping_rounds, verbose=False)
+    grid_search = GridSearchCV(xgb_model, param_grid, scoring=scoring, cv=cv, n_jobs=n_jobs)
+    grid_search.fit(X_train, y_train, eval_set=[(X_eval, y_eval)], early_stopping_rounds=early_stopping_rounds, verbose=False)
     # Extract best hyperparameters
-    ##best_params = grid_search.best_params_
+    best_params = grid_search.best_params_
 
-    best_params = {'learning_rate': 0.1, 'max_depth': 3, 'n_estimators': 50}
+    ##best_params = {'learning_rate': 0.1, 'max_depth': 3, 'n_estimators': 50}
     
     print("Best hyperparameters:", best_params)
 
@@ -298,18 +310,21 @@ def optimize_and_train_xgb(X_train, y_train, X_eval, y_eval, param_grid, scoring
 
 
 
-def optimize_and_train_lgb(X_train, y_train, X_eval, y_eval, param_grid, scoring='accuracy', cv=5, n_jobs=-1):
+def optimize_and_train_lgb(X_train, y_train, X_eval, y_eval, param_grid, cross, cv=5, n_jobs=-1):
 
     # Initialize the LightGBM model
     lgb_model = lgb.LGBMClassifier()
-
+    if cross:
+        scoring = 'accuracy'
+    else:
+        scoring = make_scorer(balanced_accuracy_score)
     # Perform grid search
-    ##grid_search = GridSearchCV(lgb_model, param_grid, scoring=scoring, cv=cv, n_jobs=n_jobs)
-    ##grid_search.fit(X_train, y_train)
+    grid_search = GridSearchCV(lgb_model, param_grid, scoring=scoring, cv=cv, n_jobs=n_jobs)
+    grid_search.fit(X_train, y_train)
 
     # Extract best hyperparameters
-    ##best_params = grid_search.best_params_
-    best_params =  {'learning_rate': 0.01, 'max_depth': 10, 'n_estimators': 200, 'num_leaves': 31}
+    best_params = grid_search.best_params_
+    ##best_params =  {'learning_rate': 0.01, 'max_depth': 10, 'n_estimators': 200, 'num_leaves': 31}
 
     print("Best hyperparameters:", best_params)
 
@@ -319,54 +334,68 @@ def optimize_and_train_lgb(X_train, y_train, X_eval, y_eval, param_grid, scoring
 
     return lgb_best, best_params
 
+def create_model(input_dim, optimizer='adam', init='glorot_uniform'):
+    model = Sequential()
+    model.add(Dense(64, activation='relu', kernel_initializer=init, input_shape=(input_dim,)))
+    model.add(Dense(32, activation='relu', kernel_initializer=init))
+    model.add(Dense(16, activation='relu', kernel_initializer=init))
+    model.add(Dense(8, activation='relu', kernel_initializer=init))
+    model.add(Dense(1, activation='sigmoid', kernel_initializer=init))  # Output layer for binary classification
 
-
-
-def train_and_evaluate_NN(X_train_eval, y_train_eval, X_eval, y_eval, X_test, y_test, epochs=5, batch_size=32):
+    # Compile the model
+    model.compile(optimizer=optimizer, loss='mean_squared_error', metrics=['accuracy'])
+    return model
+def optimize_and_train_NN(X_train, y_train, X_eval, y_eval, X_test, param_grid, cross, cv=5, n_jobs=-1):
     # Initialize the scaler and scale the data
     scaler = StandardScaler()
-    X_train_eval_scaled = scaler.fit_transform(X_train_eval)
+    X_train_scaled = scaler.fit_transform(X_train)
     X_eval_scaled = scaler.transform(X_eval)
     X_test_scaled = scaler.transform(X_test)
 
-    # Define the model architecture
-    model = Sequential([
-        Dense(64, activation='relu', input_shape=(X_train_eval_scaled.shape[1],)),
-        Dense(32, activation='relu'),
-        Dense(16, activation='relu'), 
-        Dense(8, activation='relu'),   
-        Dense(1, activation='sigmoid')  # Output layer for binary classification
-    ])
+    # Get the input dimension for the model
+    input_dim = X_train_scaled.shape[1]
 
-    # Compile the model
-    model.compile(optimizer='adam', loss='mean_squared_error', metrics=['accuracy'])
+    # Wrap the Keras model for use with scikit-learn
+    model = KerasClassifier(build_fn=lambda: create_model(input_dim=input_dim), verbose=0)
 
-    # Configure Early Stopping
-    early_stopping = EarlyStopping(
-        monitor='val_loss',    # Monitor validation loss
-        min_delta=0.001,       # Minimum change in the monitored quantity to qualify as an improvement
-        patience=10,           # Number of epochs with no improvement after which training will be stopped
-        verbose=1,             # Verbosity mode
-        restore_best_weights=True  # Restores model weights from the epoch with the best value of the monitored quantity
+    if cross:
+        scoring = 'accuracy'
+    else:
+        scoring = make_scorer(balanced_accuracy_score)
+
+    # Perform grid search
+    grid_search = GridSearchCV(
+        estimator=model, 
+        param_grid=param_grid,
+        scoring=scoring, 
+        cv=cv, 
+        n_jobs=n_jobs
     )
+    grid_search.fit(X_train_scaled, y_train)
 
-    # Train the model with Early Stopping
-    history = model.fit(
-        X_train_eval_scaled, y_train_eval,
-        epochs=epochs,
-        batch_size=batch_size,
+    # Extract best hyperparameters
+    best_params = grid_search.best_params_
+
+    print("Best hyperparameters:", best_params)
+
+    # Retrain the model with the best parameters
+    best_model = create_model(input_dim=input_dim, optimizer=best_params['optimizer'], init='glorot_uniform')
+    best_model.fit(
+        X_train_scaled, y_train,
+        epochs=best_params['epochs'],
+        batch_size=best_params['batch_size'],
         validation_data=(X_eval_scaled, y_eval),
-        callbacks=[early_stopping]  # Include Early Stopping callback here
+        callbacks=[
+            EarlyStopping(monitor='val_loss', min_delta=0.001, patience=10, verbose=1, restore_best_weights=True)
+        ]
     )
 
-    return model, history, X_test_scaled
+    return best_model, best_params, X_test_scaled
 
 
 
-import numpy as np
-import pandas as pd
 
-def predict_and_analyze_ext(model, X_test, df, name, df_read, date_col, top_percentile=90, bottom_percentile=10):
+def predict_and_analyze_ext(model, X_test, df, name, df_read, date_col, cross, top_percentile=90, bottom_percentile=10):
     
     if name == 'benchmark':
                 
@@ -383,17 +412,28 @@ def predict_and_analyze_ext(model, X_test, df, name, df_read, date_col, top_perc
         
         rank_columns = [col + '_rank' for col in columns_to_rank]
         X_ranked_trans[name] = X_ranked_trans[rank_columns].mean(axis=1)
+        if cross:
+            ranked_top_10 = X_ranked_trans.groupby('todate')[name].apply(lambda x: np.percentile(x, 90))
+            ranked_bottom_10 = X_ranked_trans.groupby('todate')[name].apply(lambda x: np.percentile(x, 10))
         
-        ranked_top_10 = X_ranked_trans.groupby('todate')[name].apply(lambda x: np.percentile(x, 90))
-        ranked_bottom_10 = X_ranked_trans.groupby('todate')[name].apply(lambda x: np.percentile(x, 10))
-        
-        ranked_top_10_df = ranked_top_10.reset_index()
-        ranked_top_10_df.columns = ['todate', 'top_threshold']
-        ranked_bottom_10_df = ranked_bottom_10.reset_index()
-        ranked_bottom_10_df.columns = ['todate', 'bottom_threshold']
-        ranked_merged = X_ranked_trans.merge(ranked_top_10_df, on='todate').merge(ranked_bottom_10_df, on='todate')
-        top_assets = ranked_merged[ranked_merged[name] >= ranked_merged['top_threshold']]
-        bottom_assets = ranked_merged[ranked_merged[name] <= ranked_merged['bottom_threshold']]
+            ranked_top_10_df = ranked_top_10.reset_index()
+            ranked_top_10_df.columns = ['todate', 'top_threshold']
+            ranked_bottom_10_df = ranked_bottom_10.reset_index()
+            ranked_bottom_10_df.columns = ['todate', 'bottom_threshold']
+            ranked_merged = X_ranked_trans.merge(ranked_top_10_df, on='todate').merge(ranked_bottom_10_df, on='todate')
+            top_assets = ranked_merged[ranked_merged[name] >= ranked_merged['top_threshold']]
+            bottom_assets = ranked_merged[ranked_merged[name] <= ranked_merged['bottom_threshold']]
+        else:
+            ranked_top_10 = X_ranked_trans.groupby('asset')[name].apply(lambda x: np.percentile(x, 90))
+            ranked_bottom_10 = X_ranked_trans.groupby('asset')[name].apply(lambda x: np.percentile(x, 10))
+            ranked_top_10_df = ranked_top_10.reset_index()
+            ranked_top_10_df.columns = ['asset', 'top_threshold']
+            ranked_bottom_10_df = ranked_bottom_10.reset_index()
+            ranked_bottom_10_df.columns = ['asset', 'bottom_threshold']
+            ranked_merged = X_ranked_trans.merge(ranked_top_10_df, on='asset').merge(ranked_bottom_10_df, on='asset')
+            top_assets = ranked_merged[ranked_merged[name] >= ranked_merged['top_threshold']]
+            bottom_assets = ranked_merged[ranked_merged[name] <= ranked_merged['bottom_threshold']]
+ 
         return top_assets, bottom_assets
     
     
@@ -444,7 +484,6 @@ def get_indices_by_date(df, date, date_column=None):
     return df[df[date_column] == pd.to_datetime(date)]
 
 
-import pandas as pd
 
 def calculate_trade_volume(df):
     # Calculate the absolute difference between consecutive days
@@ -494,7 +533,8 @@ def financial_metrics(daily_returns, weights):
     return_kurtosis = kurtosis(daily_returns)
 
     trades = calculate_trade_volume(weights)
-
+    turnover = weights.diff().abs().sum().sum()  # Total turnover
+    transaction_costs = turnover * 0.01 * 0.01  # Transaction cost calculation
 
     # Return a dictionary of results
     return {
@@ -506,8 +546,9 @@ def financial_metrics(daily_returns, weights):
         "Calmar Ratio": calmar_ratio,
         "Skewness": return_skewness,
         "Kurtosis": return_kurtosis,
-        "Trades": trades.sum()
-
+        "Trades": trades.sum(),
+        "Turnover": turnover,
+        "Transaction Costs": transaction_costs
     }
 
 
@@ -604,100 +645,4 @@ def update_df_with_asset_performance(signals_df, portfolio_df, target_days, retu
 
 
 
-def calculate_momentum(df, windows=[63, 126, 252]):
-    """ Calculate momentum for specified windows and average them. """
-    momentum_df = pd.DataFrame(index=df.index)
-    for window in windows:
-        rolled = df.rolling(window=window, min_periods=1).mean()  # Using mean as a placeholder for any momentum calculation
-        momentum_df[f'momentum_{window}'] = rolled.mean(axis=1)  # Mean across assets, adjust as necessary
-    momentum_df['avg_momentum'] = momentum_df.mean(axis=1, skipna=True)
-    return momentum_df
 
-
-def rank_and_allocate(momentum_df, top_n=0.2, bottom_n=0.2):
-    """ Rank assets based on their momentum and allocate long/short positions. """
-    num_assets = len(momentum_df.columns)
-    ranks = momentum_df['avg_momentum'].rank(ascending=False)
-
-    long_positions = ranks <= (num_assets * top_n)
-    short_positions = ranks > (num_assets * (1 - bottom_n))
-
-    weights = pd.Series(index=momentum_df.index, dtype=float)
-    total_long = long_positions.sum()
-    total_short = short_positions.sum()
-
-    weights[long_positions] = 1.0 / total_long if total_long > 0 else 0
-    weights[short_positions] = -1.0 / total_short if total_short > 0 else 0
-
-    return weights
-
-
-def create_benchmark_portfolio(df, hold_days=252):
-    """ Create a benchmark portfolio based on momentum. """
-    momentum_df = calculate_momentum(df)  # Your existing function to calculate momentum
-    portfolio_weights = pd.DataFrame(0, index=df.index, columns=df.columns)  # Initialize weights DataFrame
-
-    for start_date in df.index:
-        end_date = start_date + pd.DateOffset(days=hold_days - 1)
-        if end_date > df.index[-1]:  # Ensure end_date is within the DataFrame's range
-            continue
-
-        current_momentum = momentum_df.loc[start_date:end_date]
-        weights = rank_and_allocate(current_momentum)  # Your function to calculate weights based on rankings
-
-        # Ensure weights array length matches the slice length
-        date_range = pd.date_range(start_date, end_date)
-        if len(weights) == len(date_range):
-            portfolio_weights.loc[date_range] = weights.values[:, None]  # Broadcasting weights across all asset columns
-        
-
-    # Zero out any MACRO related weights to ensure they do not influence the portfolio
-    macro_columns = [col for col in df.columns if 'MACRO' in col]
-    portfolio_weights[macro_columns] = 0
-
-    return portfolio_weights
-
-
-import pandas as pd
-import numpy as np
-
-def rank_and_analyze_assets(df_read, X_test, df, columns_to_rank,date_col='todate', top_percentile=90, bottom_percentile=10):
-    df_ranks = add_features(df_read, [63, 126, 252])
-
-    #only keep columns with "momentum"
-    X_ranked = df_ranks.filter(regex='momentum')
-    X_ranked_trans = transform_and_pivot_df(X_ranked, date_col)
-    # Copy the dataframe to avoid modifying the original
-    
-
-    # Apply ranking for each specified column and create a new column for each rank
-    for col in columns_to_rank:
-        X_ranked[col + '_rank'] = X_ranked[col].rank(method='average')
-
-    # Calculate the mean of ranks across specified columns
-    rank_columns = [col + '_rank' for col in columns_to_rank]
-    X_ranked['mean_rank'] = X_ranked[rank_columns].mean(axis=1)
-
-    # Merge the rank data with additional data such as 'asset' and 'todate'
-    a = X_ranked.index
-    b = df.index.intersection(a)
-    c = df.loc[b, ['asset', 'todate']]
-    d = X_ranked[['mean_rank']].join(c)
-
-    # Calculate the top and bottom percentiles for the mean rank
-    e_top = d.groupby('todate')['mean_rank'].apply(lambda x: np.percentile(x, top_percentile))
-    e_bottom = d.groupby('todate')['mean_rank'].apply(lambda x: np.percentile(x, bottom_percentile))
-
-    # Convert to DataFrame and merge thresholds back with the ranked data
-    e_top_df = e_top.reset_index()
-    e_top_df.columns = ['todate', 'top_threshold']
-    e_bottom_df = e_bottom.reset_index()
-    e_bottom_df.columns = ['todate', 'bottom_threshold']
-
-    d_merged = d.merge(e_top_df, on='todate').merge(e_bottom_df, on='todate')
-    
-    # Select top and bottom assets based on thresholds
-    top_assets = d_merged[d_merged['mean_rank'] >= d_merged['top_threshold']]
-    bottom_assets = d_merged[d_merged['mean_rank'] <= d_merged['bottom_threshold']]
-
-    return top_assets, bottom_assets
