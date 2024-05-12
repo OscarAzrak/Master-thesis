@@ -309,7 +309,6 @@ def optimize_and_train_xgb(X_train, y_train, X_eval, y_eval, param_grid, cross, 
 
 
 
-
 def optimize_and_train_lgb(X_train, y_train, X_eval, y_eval, param_grid, cross, cv=5, n_jobs=-1):
 
     # Initialize the LightGBM model
@@ -345,6 +344,7 @@ def create_model(input_dim, optimizer='adam', init='glorot_uniform'):
     # Compile the model
     model.compile(optimizer=optimizer, loss='mean_squared_error', metrics=['accuracy'])
     return model
+
 def optimize_and_train_NN(X_train, y_train, X_eval, y_eval, X_test, param_grid, cross, cv=5, n_jobs=-1):
     # Initialize the scaler and scale the data
     scaler = StandardScaler()
