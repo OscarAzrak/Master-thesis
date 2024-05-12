@@ -499,7 +499,6 @@ def calculate_trade_volume(df):
 
 
 
-from scipy.stats import skew, kurtosis
 
 def financial_metrics(daily_returns, weights):
     # Handle edge cases
@@ -580,8 +579,7 @@ def calculate_annualized_volatility(df, window=252):
     return df.rolling(window=window, min_periods = int(window//2)).std() * np.sqrt(window)
 
 
-import pandas as pd
-import numpy as np
+
 
 def update_df_with_asset_performance(signals_df, portfolio_df, target_days, returns_df, target_volatility=0.10):
     # Calculate volatilities using the existing function for annualized volatility
