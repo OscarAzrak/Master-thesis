@@ -531,10 +531,6 @@ def financial_metrics(daily_returns, weights, transaction_cost_rate=0.01):
     return_skewness = skew(daily_returns)
     return_kurtosis = kurtosis(daily_returns)
 
-    trades = calculate_trade_volume(weights)
-    turnover = weights.diff().abs().sum().sum()  # Total turnover
-    transaction_costs = turnover * 0.01 * 0.01  # Transaction cost calculation
-
     weights_yearly = weights.copy()
 
     weights_yearly['Year'] = weights.index.year
