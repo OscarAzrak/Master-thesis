@@ -500,7 +500,7 @@ def calculate_trade_volume(df):
 
 
 
-def financial_metrics(daily_returns, weights):
+def financial_metrics(daily_returns, weights, transaction_cost_rate=0.01):
     # Handle edge cases
     if daily_returns.empty:
         return "Input series is empty"
@@ -521,7 +521,7 @@ def financial_metrics(daily_returns, weights):
     sharpe_ratio = yearly_returns / yearly_std_dev if yearly_std_dev != 0 else np.nan
 
     # Calculate cumulative returns for max drawdown calculation
-    cumulative_returns = (1 + daily_returns).cumprod() - 1
+    cumulative_returns = daily_returns.cumsum()
     rolling_max = cumulative_returns.cummax()
     daily_drawdown = cumulative_returns / rolling_max - 1
     max_drawdown = daily_drawdown.min()
@@ -535,19 +535,28 @@ def financial_metrics(daily_returns, weights):
     turnover = weights.diff().abs().sum().sum()  # Total turnover
     transaction_costs = turnover * 0.01 * 0.01  # Transaction cost calculation
 
+    weights_yearly = weights.copy()
+
+    weights_yearly['Year'] = weights.index.year
+    yearly_metrics = weights_yearly.groupby('Year').apply(lambda x: pd.Series({
+        'Yearly Trades': calculate_trade_volume(x).sum(),
+        'Yearly Turnover': x.diff().abs().sum().sum(),
+        'Yearly Transaction Costs': x.diff().abs().sum().sum() * transaction_cost_rate * transaction_cost_rate
+    }))
+
     # Return a dictionary of results
     return {
         "Average Yearly Return": yearly_returns,
         "Average Yearly Standard Deviation": yearly_std_dev,
-        "Sharpe Ratio": sharpe_ratio,
+        "Yearly Sharpe Ratio": sharpe_ratio,
         "Max Drawdown": max_drawdown,
-        "Volatility": volatility,
+        "Yearly Volatility": volatility,
         "Calmar Ratio": calmar_ratio,
         "Skewness": return_skewness,
         "Kurtosis": return_kurtosis,
-        "Trades": trades.sum(),
-        "Turnover": turnover,
-        "Transaction Costs": transaction_costs
+        "Yearly Trades": yearly_metrics['Yearly Trades'].mean(),
+        "Yearly Turnover": yearly_metrics['Yearly Turnover'].mean(),
+        "Yearly Transaction Costs": yearly_metrics['Yearly Transaction Costs'].mean(),
     }
 
 
