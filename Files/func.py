@@ -523,7 +523,7 @@ def financial_metrics(daily_returns, weights, transaction_cost_rate=0.01):
     # Calculate cumulative returns for max drawdown calculation
     cumulative_returns = daily_returns.cumsum()
     rolling_max = cumulative_returns.cummax()
-    daily_drawdown = cumulative_returns / rolling_max - 1
+    daily_drawdown = np.exp(cumulative_returns) / rolling_max - 1
     max_drawdown = daily_drawdown.min()
 
     volatility = daily_returns.std() * np.sqrt(252)
