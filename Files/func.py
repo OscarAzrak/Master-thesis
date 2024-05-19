@@ -252,8 +252,6 @@ def sigmoid(x):
 
 
 
-
-
 def evaluate_model_performance(y_true, y_pred):
     
 
@@ -521,9 +519,9 @@ def financial_metrics(daily_returns, weights, transaction_cost_rate=0.01):
     sharpe_ratio = yearly_returns / yearly_std_dev if yearly_std_dev != 0 else np.nan
 
     # Calculate cumulative returns for max drawdown calculation
-    cumulative_returns = daily_returns.cumsum()
+    cumulative_returns = np.exp(daily_returns.cumsum())
     rolling_max = cumulative_returns.cummax()
-    daily_drawdown = np.exp(cumulative_returns) / rolling_max - 1
+    daily_drawdown = cumulative_returns / rolling_max - 1
     max_drawdown = daily_drawdown.min()
 
     volatility = daily_returns.std() * np.sqrt(252)
