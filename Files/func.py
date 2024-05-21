@@ -220,7 +220,7 @@ def prepare_training_dataset(df, date_col, shuffle=False, train_split=0.25, eval
 
 
 
-def optimize_and_train_ridge(X_train, y_train, X_train_eval, y_train_eval, param_grid, cross, cv=5):
+def optimize_and_train_ridge(X_train, y_train, X_eval, y_eval, param_grid, cross, cv=5):
 
     model = RidgeClassifier()
     if cross:
@@ -240,7 +240,7 @@ def optimize_and_train_ridge(X_train, y_train, X_train_eval, y_train_eval, param
     # Retrain the model with the best parameters on the combined training and evaluation sets
     model_best = model.__class__(**grid_search.best_params_)
     #model_best = model.__class__(**best_params)
-    model_best.fit(X_train_eval, y_train_eval)
+    model_best.fit(pd.concat([X_train, X_eval]), pd.concat([y_train, y_eval]))
     
     # ändra från klassificierig till sannolikhet
 
@@ -249,8 +249,6 @@ def optimize_and_train_ridge(X_train, y_train, X_train_eval, y_train_eval, param
 
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
-
-
 
 
 
@@ -521,9 +519,9 @@ def financial_metrics(daily_returns, weights, transaction_cost_rate=0.01):
     sharpe_ratio = yearly_returns / yearly_std_dev if yearly_std_dev != 0 else np.nan
 
     # Calculate cumulative returns for max drawdown calculation
-    cumulative_returns = daily_returns.cumsum()
+    cumulative_returns = np.exp(daily_returns.cumsum())
     rolling_max = cumulative_returns.cummax()
-    daily_drawdown = np.exp(cumulative_returns) / rolling_max - 1
+    daily_drawdown = cumulative_returns / rolling_max - 1
     max_drawdown = daily_drawdown.min()
 
     volatility = daily_returns.std() * np.sqrt(252)
