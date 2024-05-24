@@ -411,8 +411,8 @@ def predict_and_analyze_ext(model, X_test, df, name, df_read, date_col, cross, t
         rank_columns = [col + '_rank' for col in columns_to_rank]
         X_ranked_trans[name] = X_ranked_trans[rank_columns].mean(axis=1)
         if cross:
-            ranked_top_10 = X_ranked_trans.groupby('todate')[name].apply(lambda x: np.percentile(x, 90))
-            ranked_bottom_10 = X_ranked_trans.groupby('todate')[name].apply(lambda x: np.percentile(x, 10))
+            ranked_top_10 = X_ranked_trans.groupby('todate')[name].apply(lambda x: np.percentile(x, top_percentile))
+            ranked_bottom_10 = X_ranked_trans.groupby('todate')[name].apply(lambda x: np.percentile(x, bottom_percentile))
         
             ranked_top_10_df = ranked_top_10.reset_index()
             ranked_top_10_df.columns = ['todate', 'top_threshold']
@@ -422,8 +422,8 @@ def predict_and_analyze_ext(model, X_test, df, name, df_read, date_col, cross, t
             top_assets = ranked_merged[ranked_merged[name] >= ranked_merged['top_threshold']]
             bottom_assets = ranked_merged[ranked_merged[name] <= ranked_merged['bottom_threshold']]
         else:
-            ranked_top_10 = X_ranked_trans.groupby('asset')[name].apply(lambda x: np.percentile(x, 90))
-            ranked_bottom_10 = X_ranked_trans.groupby('asset')[name].apply(lambda x: np.percentile(x, 10))
+            ranked_top_10 = X_ranked_trans.groupby('asset')[name].apply(lambda x: np.percentile(x, top_percentile))
+            ranked_bottom_10 = X_ranked_trans.groupby('asset')[name].apply(lambda x: np.percentile(x, bottom_percentile))
             ranked_top_10_df = ranked_top_10.reset_index()
             ranked_top_10_df.columns = ['asset', 'top_threshold']
             ranked_bottom_10_df = ranked_bottom_10.reset_index()
@@ -613,9 +613,9 @@ def update_df_with_asset_performance(signals_df, portfolio_df, target_days, retu
 
                     # Your existing logic for volatilities and weights
                     vol_ = returns_df.loc[start_date-pd.DateOffset(days=252):start_date, assets].std()
-                    weights = 1 / vol_
-                    normalized_weights = weights / weights.sum()
-                    adjusted_weights = normalized_weights * asset_signals
+                    weights = asset_signals / vol_
+                    adjusted_weights = weights / np.abs(weights).sum()
+                    #adjusted_weights = normalized_weights * asset_signals
 
                     past_returns = returns_df.loc[start_date - pd.DateOffset(days=target_days):start_date, assets]
                     port_vol = calculate_portfolio_volatility(adjusted_weights, past_returns) * np.sqrt(252)
