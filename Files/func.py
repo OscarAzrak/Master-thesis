@@ -451,27 +451,47 @@ def predict_and_analyze_ext(model, X_test, df, name, df_read, date_col, cross, t
 
     X_predict[name] = y_pred_prob  
 
-    # Merge predictions with the additional data
-    a = X_predict.index
-    b = df.index.intersection(a)
-    c = df.loc[b, ['asset', 'todate']]
-    d = X_predict[[name]].join(c)
+    if cross == True:
+        # Merge predictions with the additional data
+        a = X_predict.index
+        b = df.index.intersection(a)
+        c = df.loc[b, ['asset', 'todate']]
+        d = X_predict[[name]].join(c)
 
-    # Calculate top and bottom percentiles
-    e_top_10 = d.groupby('todate')[name].apply(lambda x: np.percentile(x, top_percentile))
-    e_bottom_10 = d.groupby('todate')[name].apply(lambda x: np.percentile(x, bottom_percentile))
+        # Calculate top and bottom percentiles
+        e_top_10 = d.groupby('todate')[name].apply(lambda x: np.percentile(x, top_percentile))
+        e_bottom_10 = d.groupby('todate')[name].apply(lambda x: np.percentile(x, bottom_percentile))
 
-    # Convert to DataFrame and merge
-    e_top_10_df = e_top_10.reset_index()
-    e_top_10_df.columns = ['todate', 'top_threshold']
-    e_bottom_10_df = e_bottom_10.reset_index()
-    e_bottom_10_df.columns = ['todate', 'bottom_threshold']
+        # Convert to DataFrame and merge
+        e_top_10_df = e_top_10.reset_index()
+        e_top_10_df.columns = ['todate', 'top_threshold']
+        e_bottom_10_df = e_bottom_10.reset_index()
+        e_bottom_10_df.columns = ['todate', 'bottom_threshold']
 
-    d_merged = d.merge(e_top_10_df, on='todate').merge(e_bottom_10_df, on='todate')
-    
-    # Select top and bottom assets
-    top_assets = d_merged[d_merged[name] >= d_merged['top_threshold']]
-    bottom_assets = d_merged[d_merged[name] <= d_merged['bottom_threshold']]
+        d_merged = d.merge(e_top_10_df, on='todate').merge(e_bottom_10_df, on='todate')
+        
+        # Select top and bottom assets
+        top_assets = d_merged[d_merged[name] >= d_merged['top_threshold']]
+        bottom_assets = d_merged[d_merged[name] <= d_merged['bottom_threshold']]
+    else:
+        # Time-Series Method
+        a = X_predict.index
+        b = df.index.intersection(a)
+        c = df.loc[b, ['asset', 'todate']]
+        d = X_predict[[name]].join(c)
+
+        e_top_10 = d.groupby('asset')[name].apply(lambda x: np.percentile(x, top_percentile))
+        e_bottom_10 = d.groupby('asset')[name].apply(lambda x: np.percentile(x, bottom_percentile))
+
+        e_top_10_df = e_top_10.reset_index()
+        e_top_10_df.columns = ['asset', 'top_threshold']
+        e_bottom_10_df = e_bottom_10.reset_index()
+        e_bottom_10_df.columns = ['asset', 'bottom_threshold']
+
+        d_merged = d.merge(e_top_10_df, on='asset').merge(e_bottom_10_df, on='asset')
+        
+        top_assets = d_merged[d_merged[name] >= d_merged['top_threshold']]
+        bottom_assets = d_merged[d_merged[name] <= d_merged['bottom_threshold']]
 
     return top_assets, bottom_assets
 
