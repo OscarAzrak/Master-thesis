@@ -606,7 +606,6 @@ def calculate_annualized_volatility(df, window=252):
 
 def update_df_with_asset_performance(signals_df, portfolio_df, target_days, returns_df, target_volatility=0.10):
     # Calculate volatilities using the existing function for annualized volatility
-    volatilities = calculate_annualized_volatility(returns_df.fillna(0))
     
     # Ensure portfolio DataFrame columns are of float type to avoid dtype issues when updating
     portfolio_df = portfolio_df.astype(float)
@@ -631,7 +630,6 @@ def update_df_with_asset_performance(signals_df, portfolio_df, target_days, retu
                     end_index = start_index + target_days - 1
                     end_date = signals_df.index[min(end_index, len(signals_df)-1)]
 
-                    # Your existing logic for volatilities and weights
                     vol_ = returns_df.loc[start_date-pd.DateOffset(days=252):start_date, assets].std()
                     weights = asset_signals / vol_
                     adjusted_weights = weights / np.abs(weights).sum()
