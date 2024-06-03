@@ -17,6 +17,9 @@ import re
 import pickle
 import lightgbm as lgb
 from scipy.stats import skew, kurtosis
+import tensorflow as tf
+import random
+
 
 pd.set_option('display.max_columns', None)
 pd.set_option('display.max_rows', None)
@@ -220,9 +223,9 @@ def prepare_training_dataset(df, date_col, shuffle=False, train_split=0.25, eval
 
 
 
-def optimize_and_train_ridge(X_train, y_train, X_eval, y_eval, param_grid, cross, cv=5):
+def optimize_and_train_ridge(X_train, y_train, X_eval, y_eval, param_grid, cross, random_seed, cv=5):
 
-    model = RidgeClassifier()
+    model = RidgeClassifier(random_state=random_seed)
     if cross:
         scoring = 'accuracy'
     else:
@@ -281,13 +284,13 @@ def evaluate_model_performance(y_true, y_pred):
 
 
 
-def optimize_and_train_xgb(X_train, y_train, X_eval, y_eval, param_grid, cross, cv=5, n_jobs=-1, early_stopping_rounds=10):
+def optimize_and_train_xgb(X_train, y_train, X_eval, y_eval, param_grid, cross, random_seed, cv=5, n_jobs=-1, early_stopping_rounds=10):
     if cross:
         scoring = 'accuracy'
     else:
         scoring = make_scorer(balanced_accuracy_score)
     # Initialize the XGBoost model
-    xgb_model = xgb.XGBClassifier(use_label_encoder=False, eval_metric='logloss')
+    xgb_model = xgb.XGBClassifier(use_label_encoder=False, eval_metric='logloss', random_state=random_seed)
 
     # Perform grid search
     grid_search = GridSearchCV(xgb_model, param_grid, scoring=scoring, cv=cv, n_jobs=n_jobs)
@@ -307,10 +310,10 @@ def optimize_and_train_xgb(X_train, y_train, X_eval, y_eval, param_grid, cross, 
 
 
 
-def optimize_and_train_lgb(X_train, y_train, X_eval, y_eval, param_grid, cross, cv=5, n_jobs=-1):
+def optimize_and_train_lgb(X_train, y_train, X_eval, y_eval, param_grid, cross,random_seed, cv=5, n_jobs=-1):
 
     # Initialize the LightGBM model
-    lgb_model = lgb.LGBMClassifier()
+    lgb_model = lgb.LGBMClassifier(random_state=random_seed)
     if cross:
         scoring = 'accuracy'
     else:
@@ -330,8 +333,14 @@ def optimize_and_train_lgb(X_train, y_train, X_eval, y_eval, param_grid, cross, 
     lgb_best.fit(pd.concat([X_train, X_eval]), pd.concat([y_train, y_eval]), eval_set=[(X_eval, y_eval)])
 
     return lgb_best, best_params
+def set_random_seed(random_seed):
+    np.random.seed(random_seed)
+    random.seed(random_seed)
+    tf.random.set_seed(random_seed)
 
-def create_model(input_dim, optimizer='adam', init='glorot_uniform'):
+def create_model(input_dim, random_seed, optimizer='adam', init='glorot_uniform'):
+    set_random_seed(seed_value)
+
     model = Sequential()
     model.add(Dense(64, activation='relu', kernel_initializer=init, input_shape=(input_dim,)))
     model.add(Dense(32, activation='relu', kernel_initializer=init))
@@ -624,7 +633,7 @@ def update_df_with_asset_performance(signals_df, portfolio_df, target_days, retu
             asset_signals = row[row != 0].values
             
             if assets:
-                start_index = current_index  # Start two trading days after the current date
+                start_index = current_index # Start two trading days after the current date
                 if start_index < len(signals_df):
                     start_date = signals_df.index[start_index]
                     end_index = start_index + target_days - 1
@@ -636,7 +645,7 @@ def update_df_with_asset_performance(signals_df, portfolio_df, target_days, retu
                     #adjusted_weights = normalized_weights * asset_signals
 
                     past_returns = returns_df.loc[start_date - pd.DateOffset(days=252):start_date, assets]
-                    port_vol = 0.1 #calculate_portfolio_volatility(adjusted_weights, past_returns) * np.sqrt(252)
+                    port_vol = calculate_portfolio_volatility(adjusted_weights, past_returns) * np.sqrt(252)
                     leverage = determine_leverage_factors(port_vol, target_volatility)
                     adjusted_weights *= leverage
                     
