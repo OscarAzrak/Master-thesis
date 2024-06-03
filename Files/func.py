@@ -624,7 +624,7 @@ def update_df_with_asset_performance(signals_df, portfolio_df, target_days, retu
             asset_signals = row[row != 0].values
             
             if assets:
-                start_index = current_index + 2  # Start two trading days after the current date
+                start_index = current_index  # Start two trading days after the current date
                 if start_index < len(signals_df):
                     start_date = signals_df.index[start_index]
                     end_index = start_index + target_days - 1
