@@ -635,8 +635,8 @@ def update_df_with_asset_performance(signals_df, portfolio_df, target_days, retu
                     adjusted_weights = weights / np.abs(weights).sum()
                     #adjusted_weights = normalized_weights * asset_signals
 
-                    past_returns = returns_df.loc[start_date - pd.DateOffset(days=target_days):start_date, assets]
-                    port_vol = calculate_portfolio_volatility(adjusted_weights, past_returns) * np.sqrt(252)
+                    past_returns = returns_df.loc[start_date - pd.DateOffset(days=252):start_date, assets]
+                    port_vol = 0.1 #calculate_portfolio_volatility(adjusted_weights, past_returns) * np.sqrt(252)
                     leverage = determine_leverage_factors(port_vol, target_volatility)
                     adjusted_weights *= leverage
                     
