@@ -20,6 +20,9 @@ from scipy.stats import skew, kurtosis
 import tensorflow as tf
 import random
 
+random_seed = 42
+np.random.seed(random_seed)
+tf.random.set_seed(random_seed)
 
 pd.set_option('display.max_columns', None)
 pd.set_option('display.max_rows', None)
@@ -241,11 +244,11 @@ def optimize_and_train_ridge(X_train, y_train, X_eval, y_eval, param_grid, cross
     print("Best accuracy on evaluation set:", grid_search.best_score_)
     #best_params = {'alpha': 10.0}
     # Retrain the model with the best parameters on the combined training and evaluation sets
-    model_best = model.__class__(**grid_search.best_params_)
+    model_best = model.__class__(**grid_search.best_params_, random_state=random_seed)
     #model_best = model.__class__(**best_params)
     model_best.fit(pd.concat([X_train, X_eval]), pd.concat([y_train, y_eval]))
     
-    # ändra från klassificierig till sannolikhet
+
 
 
     return model_best, grid_search.best_params_
