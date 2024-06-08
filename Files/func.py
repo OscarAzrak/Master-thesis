@@ -342,7 +342,7 @@ def set_random_seed(random_seed):
     tf.random.set_seed(random_seed)
 
 def create_model(input_dim, random_seed, optimizer='adam', init='glorot_uniform'):
-    set_random_seed(seed_value)
+    set_random_seed(random_seed)
 
     model = Sequential()
     model.add(Dense(64, activation='relu', kernel_initializer=init, input_shape=(input_dim,)))
@@ -355,7 +355,7 @@ def create_model(input_dim, random_seed, optimizer='adam', init='glorot_uniform'
     model.compile(optimizer=optimizer, loss='mean_squared_error', metrics=['accuracy'])
     return model
 
-def optimize_and_train_NN(X_train, y_train, X_eval, y_eval, X_test, param_grid, cross, cv=5, n_jobs=-1):
+def optimize_and_train_NN(X_train, y_train, X_eval, y_eval, X_test, param_grid, cross,random_seed, cv=5, n_jobs=-1):
     # Initialize the scaler and scale the data
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
@@ -366,7 +366,7 @@ def optimize_and_train_NN(X_train, y_train, X_eval, y_eval, X_test, param_grid, 
     input_dim = X_train_scaled.shape[1]
 
     # Wrap the Keras model for use with scikit-learn
-    model = KerasClassifier(build_fn=lambda: create_model(input_dim=input_dim), verbose=0)
+    model = KerasClassifier(build_fn=lambda: create_model(input_dim=input_dim, random_seed=random_seed), verbose=0)
 
     if cross:
         scoring = 'accuracy'
@@ -389,7 +389,7 @@ def optimize_and_train_NN(X_train, y_train, X_eval, y_eval, X_test, param_grid, 
     print("Best hyperparameters:", best_params)
 
     # Retrain the model with the best parameters
-    best_model = create_model(input_dim=input_dim, optimizer=best_params['optimizer'], init='glorot_uniform')
+    best_model = create_model(input_dim=input_dim,random_seed=random_seed , optimizer=best_params['optimizer'], init='glorot_uniform')
     best_model.fit(
         X_train_scaled, y_train,
         epochs=best_params['epochs'],
@@ -434,6 +434,7 @@ def predict_and_analyze_ext(model, X_test, df, name, df_read, date_col, cross, t
             top_assets = ranked_merged[ranked_merged[name] >= ranked_merged['top_threshold']]
             bottom_assets = ranked_merged[ranked_merged[name] <= ranked_merged['bottom_threshold']]
         else:
+            # time series method
             ranked_top_10 = X_ranked_trans.groupby('asset')[name].apply(lambda x: np.percentile(x, top_percentile))
             ranked_bottom_10 = X_ranked_trans.groupby('asset')[name].apply(lambda x: np.percentile(x, bottom_percentile))
             ranked_top_10_df = ranked_top_10.reset_index()
@@ -448,7 +449,6 @@ def predict_and_analyze_ext(model, X_test, df, name, df_read, date_col, cross, t
     
     
     X_predict = X_test.copy()
-
     # Prediction handling based on model type
     if name == 'ridge':
         y_scores = model.decision_function(X_predict)
@@ -463,29 +463,29 @@ def predict_and_analyze_ext(model, X_test, df, name, df_read, date_col, cross, t
 
     X_predict[name] = y_pred_prob  
 
-    if cross == True:
+    #if cross == True:
         # Merge predictions with the additional data
-        a = X_predict.index
-        b = df.index.intersection(a)
-        c = df.loc[b, ['asset', 'todate']]
-        d = X_predict[[name]].join(c)
+    a = X_predict.index
+    b = df.index.intersection(a)
+    c = df.loc[b, ['asset', 'todate']]
+    d = X_predict[[name]].join(c)
 
-        # Calculate top and bottom percentiles
-        e_top_10 = d.groupby('todate')[name].apply(lambda x: np.percentile(x, top_percentile))
-        e_bottom_10 = d.groupby('todate')[name].apply(lambda x: np.percentile(x, bottom_percentile))
+    # Calculate top and bottom percentiles
+    e_top_10 = d.groupby('todate')[name].apply(lambda x: np.percentile(x, top_percentile))
+    e_bottom_10 = d.groupby('todate')[name].apply(lambda x: np.percentile(x, bottom_percentile))
 
-        # Convert to DataFrame and merge
-        e_top_10_df = e_top_10.reset_index()
-        e_top_10_df.columns = ['todate', 'top_threshold']
-        e_bottom_10_df = e_bottom_10.reset_index()
-        e_bottom_10_df.columns = ['todate', 'bottom_threshold']
+    # Convert to DataFrame and merge
+    e_top_10_df = e_top_10.reset_index()
+    e_top_10_df.columns = ['todate', 'top_threshold']
+    e_bottom_10_df = e_bottom_10.reset_index()
+    e_bottom_10_df.columns = ['todate', 'bottom_threshold']
 
-        d_merged = d.merge(e_top_10_df, on='todate').merge(e_bottom_10_df, on='todate')
-        
-        # Select top and bottom assets
-        top_assets = d_merged[d_merged[name] >= d_merged['top_threshold']]
-        bottom_assets = d_merged[d_merged[name] <= d_merged['bottom_threshold']]
-    else:
+    d_merged = d.merge(e_top_10_df, on='todate').merge(e_bottom_10_df, on='todate')
+    
+    # Select top and bottom assets
+    top_assets = d_merged[d_merged[name] >= d_merged['top_threshold']]
+    bottom_assets = d_merged[d_merged[name] <= d_merged['bottom_threshold']]
+    """else:
         # Time-Series Method
         a = X_predict.index
         b = df.index.intersection(a)
@@ -504,6 +504,23 @@ def predict_and_analyze_ext(model, X_test, df, name, df_read, date_col, cross, t
         
         top_assets = d_merged[d_merged[name] >= d_merged['top_threshold']]
         bottom_assets = d_merged[d_merged[name] <= d_merged['bottom_threshold']]
+        
+        # Time-Series Method
+        X_predict = X_predict.join(df[['asset', 'todate']], how='left')
+
+        # Calculate top and bottom percentiles within each (asset, todate) group
+        e_top_10 = X_predict.groupby(['asset', 'todate'])[name].apply(lambda x: np.percentile(x, top_percentile))
+        e_bottom_10 = X_predict.groupby(['asset', 'todate'])[name].apply(lambda x: np.percentile(x, bottom_percentile))
+
+        # Convert to DataFrame and merge with predictions
+        e_top_10_df = e_top_10.reset_index().rename(columns={name: 'top_threshold'})
+        e_bottom_10_df = e_bottom_10.reset_index().rename(columns={name: 'bottom_threshold'})
+
+        d_merged = X_predict.merge(e_top_10_df, on=['asset', 'todate']).merge(e_bottom_10_df, on=['asset', 'todate'])
+
+        # Select top and bottom assets
+        top_assets = d_merged[d_merged[name] >= d_merged['top_threshold']]
+        bottom_assets = d_merged[d_merged[name] <= d_merged['bottom_threshold']]"""
 
     return top_assets, bottom_assets
 
